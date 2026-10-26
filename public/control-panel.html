@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en-NZ">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Hello Club — Booking Monitor</title>
+  <style>
+    :root {
+      --paper: #f5f4ef;
+      --ink: #18231f;
+      --muted: #627069;
+      --line: #ccd4cd;
+      --card: #fffefa;
+      --green: #286b4e;
+      --green-soft: #e0eee4;
+      --amber: #9a6515;
+      --amber-soft: #f8ebcf;
+      --red: #aa3e35;
+      --red-soft: #f7ded9;
+      --slate: #42524b;
+      --shadow: 0 1px 1px rgba(24,35,31,.05), 0 8px 24px rgba(24,35,31,.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --paper:#121815; --ink:#e4e9e3; --muted:#a7b4ac; --line:#33443b; --card:#1a241f; --green:#82c59d; --green-soft:#1c3929; --amber:#e9b967; --amber-soft:#3c2d17; --red:#ef958b; --red-soft:#462321; --slate:#bdcbc3; --shadow:none; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family: ui-rounded, "Avenir Next", Avenir, "Segoe UI", sans-serif; }
+    .wrap { width:min(1440px, calc(100% - 40px)); margin:0 auto; padding:30px 0 48px; }
+    header { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; padding:0 0 22px; border-bottom:1px solid var(--line); }
+    .eyebrow { font-size:12px; font-weight:700; color:var(--green); letter-spacing:.11em; text-transform:uppercase; margin-bottom:7px; }
+    h1 { margin:0; font-size:clamp(27px, 4vw, 42px); letter-spacing:-.045em; line-height:1; font-weight:750; }
+    .sub { color:var(--muted); font-size:14px; margin:9px 0 0; max-width:640px; line-height:1.5; }
+    .refresh { text-align:right; color:var(--muted); font-size:12px; line-height:1.5; min-width:180px; }
+    .refresh strong { display:block; color:var(--ink); font-variant-numeric:tabular-nums; font-size:13px; }
+    .grid { display:grid; grid-template-columns:1fr; gap:20px; margin-top:20px; }
+    .full { grid-column:1 / -1; }
+    section { background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); overflow:hidden; }
+    .heading { padding:18px 20px 15px; display:flex; align-items:baseline; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); }
+    h2 { font-size:16px; letter-spacing:-.015em; margin:0; }
+    .note { font-size:12px; color:var(--muted); }
+    .processes { display:grid; grid-template-columns:repeat(3, 1fr); }
+    .process { min-height:145px; padding:19px 20px; border-right:1px solid var(--line); }
+    .process:last-child { border-right:0; }
+    .label { color:var(--muted); font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+    .state { display:flex; align-items:center; gap:8px; margin:12px 0 6px; font-size:20px; font-weight:720; letter-spacing:-.025em; }
+    .dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; background:var(--slate); }
+    .dot.good { background:var(--green); box-shadow:0 0 0 4px var(--green-soft); }
+    .dot.warn { background:var(--amber); box-shadow:0 0 0 4px var(--amber-soft); }
+    .dot.bad { background:var(--red); box-shadow:0 0 0 4px var(--red-soft); }
+    .detail { color:var(--muted); font-size:13px; line-height:1.5; }
+    .empty { padding:29px 20px; color:var(--muted); font-size:14px; line-height:1.55; }
+    .job { padding:20px; }
+    .job-title { display:flex; align-items:flex-start; justify-content:space-between; gap:15px; margin-bottom:16px; }
+    .job-title strong { font-size:18px; letter-spacing:-.02em; }
+    .pill { display:inline-flex; align-items:center; min-height:23px; padding:3px 9px; border-radius:99px; background:var(--green-soft); color:var(--green); font-size:11px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
+    .pill.warn { background:var(--amber-soft); color:var(--amber); }.pill.bad { background:var(--red-soft); color:var(--red); }.pill.slate { background:color-mix(in srgb, var(--line) 55%, transparent); color:var(--slate); }
+    dl { display:grid; grid-template-columns:1fr; gap:13px; margin:0; }
+    dt { font-size:11px; text-transform:uppercase; letter-spacing:.06em; font-weight:700; color:var(--muted); }
+    dd { margin:4px 0 0; font-size:14px; line-height:1.35; font-weight:570; }
+    .safety { padding:12px 20px; border-top:1px solid var(--line); background:color-mix(in srgb, var(--green-soft) 45%, transparent); color:var(--slate); font-size:12px; line-height:1.45; }
+    .table-wrap { overflow:auto; }
+    table { width:100%; border-collapse:collapse; font-size:13px; min-width:740px; }
+    th { text-align:left; padding:11px 20px; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid var(--line); font-weight:750; white-space:nowrap; }
+    td { padding:14px 20px; border-bottom:1px solid color-mix(in srgb, var(--line) 75%, transparent); vertical-align:top; line-height:1.4; }
+    tbody tr:last-child td { border-bottom:0; }
+    .mono, time { font-family:"SFMono-Regular", Menlo, Consolas, monospace; font-size:12px; font-variant-numeric:tabular-nums; }
+    .muted { color:var(--muted); }.tight { white-space:nowrap; }
+    .message { padding:11px 14px; margin:18px 0 0; border:1px solid var(--amber); color:var(--amber); background:var(--amber-soft); border-radius:8px; font-size:13px; display:none; }
+    .message.show { display:block; }
+    .statusbar { display:flex; align-items:center; gap:0; margin-top:14px; border:1px solid var(--line); border-radius:10px; background:var(--card); overflow:auto; box-shadow:var(--shadow); }
+    .status-item { display:flex; align-items:center; gap:7px; padding:9px 13px; border-right:1px solid var(--line); font-size:12px; color:var(--muted); white-space:nowrap; }
+    .status-item:last-child { border-right:0; }.status-item strong { color:var(--ink); font-size:12px; }
+    details.secondary { grid-column:1 / -1; border:1px solid var(--line); border-radius:10px; background:var(--card); overflow:hidden; box-shadow:var(--shadow); }
+    details.secondary summary { cursor:pointer; padding:14px 18px; font-size:14px; font-weight:700; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    details.secondary summary::-webkit-details-marker { display:none; }
+    details.secondary summary::after { content:'+'; color:var(--muted); font-size:18px; font-weight:400; } details.secondary[open] summary::after { content:'−'; }
+    details.secondary .secondary-body { border-top:1px solid var(--line); }
+    @media (max-width:880px) { .grid { grid-template-columns:1fr; }.full{grid-column:auto}.processes{grid-template-columns:1fr}.process{border-right:0;border-bottom:1px solid var(--line)}.process:last-child{border-bottom:0} details.secondary{grid-column:auto} }
+    @media (max-width:620px) { .wrap{width:min(100% - 24px, 1440px); padding-top:20px} header{align-items:flex-start; flex-direction:column}.refresh{text-align:left} dl{grid-template-columns:1fr}.heading{padding:15px 16px}.job{padding:16px}.status-item{padding:8px 10px} }
+    @media (prefers-reduced-motion:no-preference) { .dot.good { animation:pulse 2s ease-in-out infinite; } @keyframes pulse { 50%{ box-shadow:0 0 0 7px transparent;} } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div>
+        <div class="eyebrow">Wellington North Badminton Stadium</div>
+        <h1>Booking monitor</h1>
+        <p class="sub">Live, read-only view of the local scheduler, Chrome/CDP connection, booking watcher activity, and bookings synchronized from Hello Club.</p>
+      </div>
+      <div class="refresh"><strong id="updated">Loading status…</strong><span>Auto-refreshes every hour</span></div>
+    </header>
+    <div id="error" class="message"></div>
+    <div id="system-status" class="statusbar" aria-label="System status"></div>
+
+    <div class="grid">
+      <section>
+        <div class="heading"><h2>Active booking job</h2><span class="note">Exact configuration only</span></div>
+        <div id="active-job"></div>
+        <div class="safety" id="safety"></div>
+      </section>
+
+      <section>
+        <div class="heading"><h2>Upcoming bookings</h2><span class="note" id="upcoming-count"></span></div>
+        <div id="upcoming-bookings"></div>
+      </section>
+
+      <details class="secondary">
+        <summary>Past bookings <span class="note" id="past-count"></span></summary>
+        <div class="secondary-body" id="past-bookings"></div>
+      </details>
+
+      <details class="secondary">
+        <summary>Booking activity <span class="note">Latest local events</span></summary>
+        <div class="secondary-body" id="activity"></div>
+      </details>
+    </div>
+  </main>
+  <script>
+    const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+    const dateTime = (value) => value ? new Intl.DateTimeFormat('en-NZ', { dateStyle:'medium', timeStyle:'medium', timeZone:'Pacific/Auckland' }).format(new Date(value)) : '—';
+    const dateOnly = (value) => value ? new Intl.DateTimeFormat('en-NZ', { weekday:'short', day:'numeric', month:'short', year:'numeric', timeZone:'Pacific/Auckland' }).format(new Date(`${value}T12:00:00+13:00`)) : '—';
+    const badge = (status) => {
+      const s = String(status || 'unknown'); const cls = /complete|running|reachable|confirmed|free/.test(s) ? '' : /fail|miss|timeout|unavailable|late/.test(s) ? 'bad' : 'warn';
+      return `<span class="pill ${cls}">${esc(s.replaceAll('_',' '))}</span>`;
+    };
+    const statusItem = (label, state, kind) => `<span class="status-item"><span class="dot ${kind}"></span><strong>${esc(label)}</strong> ${esc(state)}</span>`;
+    function renderProcesses(processes) {
+      const dispatcher = processes.dispatcher;
+      const dispatcherGood = dispatcher.configured && ['running','not running'].includes(dispatcher.state) && dispatcher.lastExitCode === 0;
+      const chromeGood = processes.chrome.processDetected && processes.chrome.cdpReachable;
+      const runner = processes.runner;
+      document.querySelector('#system-status').innerHTML = [
+        statusItem('Dispatcher', dispatcherGood ? (dispatcher.state === 'running' ? 'checking' : 'ready') : 'needs attention', dispatcherGood ? 'good' : 'bad'),
+        statusItem('Chrome', chromeGood ? 'ready' : 'unavailable', chromeGood ? 'good' : 'bad'),
+        statusItem('Runner', runner.state === 'running' ? 'watching' : 'idle', runner.state === 'running' ? 'good' : 'warn'),
+      ].join('');
+    }
+    function activeJobTable(job, status) {
+      const opening = job.prepareAt ? `${dateTime(job.prepareAt)}<br><span class="muted">opens ${dateTime(job.openAt)}</span>` : dateTime(job.openAt);
+      return `<div class="table-wrap"><table><thead><tr><th>Job</th><th>Date & time</th><th>Court priority</th><th>Players</th><th>Opening</th><th>Status</th></tr></thead><tbody><tr><td class="mono">${esc(job.id)}</td><td class="tight">${dateOnly(job.date)}<br><span class="mono muted">${esc(job.start)}–${esc(job.end)}</span></td><td>${esc(job.courtOrder.join(' → '))}</td><td>${esc(job.participants.join(' · '))}</td><td class="tight">${opening}</td><td>${badge(status)}</td></tr></tbody></table></div>`;
+    }
+    function renderJob(job) {
+      const container = document.querySelector('#active-job');
+      if (!job) { container.innerHTML = '<div class="empty">No active booking job is scheduled. The dispatcher remains loaded, but it does not open Chrome or the booking page while no job is present.</div>'; return; }
+      const status = job.dispatch?.status || 'scheduled';
+      container.innerHTML = activeJobTable(job, status);
+    }
+    function bookingTable(bookings) {
+      return `<div class="table-wrap"><table><thead><tr><th>Date & time</th><th>Court</th><th>Booking type</th><th>Players</th><th>Payment</th><th>Remote sync</th></tr></thead><tbody>${bookings.map(b => `<tr><td class="tight">${dateOnly(b.date)}<br><span class="mono muted">${esc(b.start)}–${esc(b.end)}</span></td><td>${esc(b.court)}</td><td>${esc(b.bookingType)}</td><td>${esc(b.participants.join(' · '))}</td><td>${badge(b.paymentStatus)}</td><td><time>${dateTime(b.verifiedAt)}</time></td></tr>`).join('')}</tbody></table></div>`;
+    }
+    function renderBookings(groups, remoteSync) {
+      const syncState = remoteSync?.state || 'unavailable';
+      const syncNote = remoteSync?.syncedAt ? `${syncState === 'fresh' ? 'synced' : syncState} ${dateTime(remoteSync.syncedAt)}` : 'remote sync unavailable';
+      const upcoming = groups?.upcoming || [];
+      const past = groups?.past || [];
+      document.querySelector('#upcoming-count').textContent = `${upcoming.length} remote · ${syncNote}`;
+      document.querySelector('#past-count').textContent = `${past.length} remote · ${syncNote}`;
+      const upcomingEl = document.querySelector('#upcoming-bookings');
+      const pastEl = document.querySelector('#past-bookings');
+      if (syncState === 'unavailable') {
+        const message = '<div class="empty">Hello Club could not be read. Existing local records are intentionally not shown as current bookings.</div>';
+        upcomingEl.innerHTML = message; pastEl.innerHTML = message; return;
+      }
+      upcomingEl.innerHTML = upcoming.length ? bookingTable(upcoming) : '<div class="empty">No upcoming Wellington North Badminton Stadium bookings were returned by Hello Club.</div>';
+      pastEl.innerHTML = past.length ? bookingTable(past) : '<div class="empty">No recent past Wellington North Badminton Stadium bookings were returned by Hello Club.</div>';
+    }
+    function activityDescription(event) {
+      if (event.kind === 'dispatcher') return event.reason ? esc(event.reason) : event.exitCode == null ? 'Dispatcher lifecycle update.' : `Exit code ${esc(event.exitCode)}.`;
+      if (event.selection?.court) return `Candidate: ${esc(event.selection.court)} · checked ${esc(event.selection.checked?.join(', ') || '—')}`;
+      if (event.selection?.status) return esc(event.selection.status.replaceAll('_',' '));
+      if (event.errorCode) return esc(event.errorCode);
+      return event.attempts ? `${esc(event.attempts)} scan attempt${event.attempts === 1 ? '' : 's'}.` : 'Runner lifecycle update.';
+    }
+    function renderActivity(events) {
+      const el = document.querySelector('#activity');
+      if (!events.length) { el.innerHTML = '<div class="empty">No dispatcher or runner events have been written yet.</div>'; return; }
+      el.innerHTML = `<div class="table-wrap"><table><thead><tr><th>When</th><th>Source</th><th>Job</th><th>Status</th><th>Detail</th></tr></thead><tbody>${events.map(e => `<tr><td class="tight"><time>${dateTime(e.timestamp)}</time></td><td>${esc(e.kind)}</td><td class="mono">${esc(e.jobId || '—')}</td><td>${badge(e.status)}</td><td class="muted">${activityDescription(e)}</td></tr>`).join('')}</tbody></table></div>`;
+    }
+    async function refresh() {
+      const error = document.querySelector('#error');
+      try {
+        const response = await fetch('/api/status', { cache:'no-store' });
+        if (!response.ok) throw new Error('Status endpoint returned an error');
+        const status = await response.json();
+        renderProcesses(status.processes); renderJob(status.activeJob); renderBookings(status.bookings, status.remoteSync); renderActivity(status.activity);
+        document.querySelector('#safety').textContent = status.safety.message;
+        document.querySelector('#updated').textContent = `Updated ${dateTime(status.generatedAt)}`;
+        error.classList.remove('show');
+      } catch (err) { error.textContent = 'Live status is temporarily unavailable. The panel will retry automatically.'; error.classList.add('show'); }
+    }
+    if (location.protocol === 'file:') {
+      const error = document.querySelector('#error');
+      error.textContent = 'This dashboard needs its local status service. Open http://127.0.0.1:8787 — do not open control-panel.html directly.';
+      error.classList.add('show');
+      document.querySelector('#updated').textContent = 'Open through local server';
+    } else {
+      refresh(); setInterval(refresh, 3_600_000);
+    }
+  </script>
+</body>
+</html>

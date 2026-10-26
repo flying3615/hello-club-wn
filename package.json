@@ -1,0 +1,19 @@
+{
+  "name": "hello-club-playwright",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "run": "node src/runner.mjs",
+    "watch:opening": "node src/opening-watch.mjs",
+    "run:launchd": "node src/launchd-runner.mjs",
+    "create:launchd": "node src/create-launchd-agent.mjs",
+    "dispatch:launchd": "node src/launchd-dispatcher.mjs",
+    "create:dispatcher": "node src/create-launchd-dispatcher.mjs",
+    "panel": "node src/control-panel-server.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.58.0"
+  }
+}

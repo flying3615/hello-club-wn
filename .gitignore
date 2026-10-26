@@ -1,0 +1,28 @@
+# Dependencies and package-manager artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime state: booking records, jobs, logs, diagnostics and screenshots
+state/
+
+# Browser profile/session data and Chrome runtime files
+chrome-cdp-profile/
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# One-off local investigation scripts and generated artefacts
+.tmp-*
+*.log
+coverage/
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/

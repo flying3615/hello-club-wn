@@ -1,25 +1,33 @@
-# Hello Club Playwright runner
+# Hello Club booking automation
 
-This profile-local project prepares a Playwright controller for Wellington North Badminton bookings.
+A profile-local Node.js/Playwright controller for **Wellington North Badminton Stadium** bookings through an already authenticated, visible Google Chrome session. It can inspect availability, wait for the weekly opening instant, and—only for an explicit protected job—submit a booking and verify it against the authenticated Hello Club calendar.
 
-## Current status
+## What it does
 
-- Policy core implemented and covered by Node tests.
-- Normal Google Chrome + CDP session verified on port `9223`.
-- The authenticated booking page was read successfully through CDP.
-- The booking grid was parsed read-only into 48 half-hour slots per court.
-- A deterministic opening watcher now pre-warms the target page, waits until a bounded pre-opening window, polls every 2.5 seconds by default, verifies the exact rendered target date, and stops as soon as the real grid is available.
-- The watcher has been exercised read-only through the live CDP session; it correctly identified the exact target date and returned no complete interval for the tested 2026-10-31 08:30–10:30 target without clicking.
-- Court-selection logic was exercised against the live page and selected the first complete interval according to policy.
-- A macOS `launchd` user-session runner is implemented and validated in read-only mode. It attaches to the existing Chrome/CDP session directly; Hermes cron is not in its execution path.
-- Automatic submission remains deliberately disabled: the final review/payment verification path has not yet passed a controlled end-to-end calibration.
-- No booking is submitted by this project yet.
+- Uses an existing normal Chrome session through a loopback-only Chrome DevTools Protocol (CDP) endpoint. It never types, stores, copies, or exports login credentials, cookies, or browser profiles.
+- Reads the rendered six-court booking grid and accepts only a complete requested interval, in the configured court priority order: **Court 4 → Court 5 → Court 6 → Court 1 → Court 2 → Court 3**.
+- Supports `inspect`, `watch`, and explicit `execute` modes. Only `execute` with `submit: true` can submit a booking.
+- Enforces the weekly opening rule: a target Monday becomes available at **07:00 Pacific/Auckland on the preceding Monday**. Prewarming is permitted, but grid scanning, selection, and submission wait until the exact opening instant and a fresh target-page reload.
+- Verifies date, time, court, booking type, participants, and payment state against the authenticated remote calendar after submission. A local record alone never proves that a booking exists remotely.
+- Runs scheduled work through a logged-in macOS `launchd` LaunchAgent, rather than Hermes cron.
 
-## One-time session setup
+A successful real booking has been submitted and remotely verified with this project. The read-only commands below do **not** make a booking.
 
-The login must happen in a normal visible Chrome window, not a Playwright-launched browser. The current setup uses the independent profile at `state/chrome-cdp-profile` and CDP port `9223`. Enter credentials manually in that window; the program never types or stores them.
+## Safety boundaries
 
-The CDP endpoint can be checked with:
+- A job is schema-validated and must use a loopback CDP endpoint, an exact half-hour range, `Stadium Pass - Singles`, exactly two named participants, an allowed court order, opening and late-start timestamps, `paymentPolicy: "cancel-on-payment"`, and an explicit boolean `submit` field.
+- `execute` requires `submit: true`; all other modes are read-only.
+- Payment is never automatically approved. If Hello Club hands off to a payment page, the only permitted action is **CANCEL**; the automation never clicks **NEXT**, enters payment data, or uses **REMOVE BOOKING**.
+- The local control panel is loopback-only and read-only. It cannot create, change, pay for, remove, or cancel bookings.
+- Runtime state is intentionally excluded from Git: `state/` contains the Chrome profile, jobs, booking records, logs, diagnostics, and screenshots.
+
+## Prerequisites
+
+- Node.js with dependencies installed: `npm install`
+- A normal visible Google Chrome window using the independent local profile under `state/chrome-cdp-profile`, already signed in manually to Hello Club.
+- Chrome started with a loopback CDP endpoint, normally `http://127.0.0.1:9223`.
+
+Check the endpoint without exposing credentials:
 
 ```bash
 curl http://127.0.0.1:9223/json/version
@@ -27,83 +35,86 @@ curl http://127.0.0.1:9223/json/version
 
 ## Read-only inspection
 
+Inspecting a date reads availability only; it does not select a slot, open a payment flow, create, cancel, or remove a booking.
+
 ```bash
-node src/runner.mjs inspect --date YYYY-MM-DD --cdp
+npm run run -- inspect --date YYYY-MM-DD --cdp
 ```
 
-Inspection is read-only. It does not select a slot, create a booking, open a payment flow, or cancel anything. The grid parser uses the live `booking-grid-slot` DOM and rejects incomplete columns.
+The grid parser reads the live `booking-grid-slot` DOM and rejects incomplete court columns.
 
-The watcher is read-only: it never selects a slot or submits a booking. Example:
+## Opening watcher
+
+The watcher waits for a configured opening boundary, refreshes the target page at most every 2.5 seconds in its bounded window, verifies the venue/date/courts, and reports a suitable complete interval. It remains read-only.
 
 ```bash
-node src/opening-watch.mjs \
-  --date 2026-10-31 \
-  --start 08:30 \
-  --end 10:30 \
-  --open-at 2026-10-24T07:00:00+13:00 \
+npm run watch:opening -- \
+  --date YYYY-MM-DD \
+  --start 15:30 \
+  --end 16:30 \
+  --open-at 2026-10-26T07:00:00+13:00 \
   --lead-ms 15000 \
   --poll-ms 2500 \
   --timeout-ms 180000 \
   --cdp
 ```
 
-It connects to the already-running normal Chrome session, waits until 15 seconds before the configured opening time, refreshes at most every 2.5 seconds within the bounded window, verifies the exact target-date heading, scans the grid, and reports the first complete preferred court. A CDP connection is disconnected with `process.exit(0)`; it never closes the user's Chrome.
+The watcher disconnects from CDP when it finishes; it never closes the user’s Chrome.
 
-## Native macOS launchd runner
+## Scheduled booking workflow
 
-Use a **LaunchAgent**, not a LaunchDaemon: it runs in the logged-in Aqua session and can attach to the already-authenticated visible Chrome through loopback CDP. It does not depend on Hermes cron or a freshly spawned LLM session.
+The normal automated workflow is a persistent user LaunchAgent:
 
-A job JSON is intentionally restrictive: it must be mode `0600`, uses only `http://127.0.0.1:<port>`, specifies a half-hour range, exact booking type/players/court order, an opening time and late-start cutoff, and permits only `cancel-on-payment`. It rejects credential-like fields. The current runner supports only `inspect` and `watch`; `execute` is fail-closed until final-review/payment/remote-readback calibration passes.
+1. An explicit job is placed at `state/jobs/active.json` with restrictive permissions.
+2. The dispatcher performs a low-overhead idle check every 15 minutes. It only starts the runner inside the job’s explicit `prepareAt` → `latestStart` window.
+3. The runner may prewarm before the opening instant, but waits until `openAt` before scanning, selecting, or submitting.
+4. In `execute` mode, the runner submits only when `submit: true`, then requires authenticated remote-calendar evidence before recording success.
 
-Read-only validation:
-
-```bash
-node src/launchd-runner.mjs \
-  --job /absolute/path/to/job.json \
-  --mode inspect \
-  --cdp-endpoint http://127.0.0.1:9223
-```
-
-The runner writes redacted JSONL results under `state/launchd/runs/` and uses an atomic per-job lock. It records no raw DOM, Chrome profile paths, cookies, credentials, payment data, or player names.
-
-### Recommended: one-time persistent dispatcher
-
-The recommended setup is one persistent LaunchAgent that uses a low-overhead 15-minute idle check, reads `state/jobs/active.json`, and starts a watcher only inside that job's explicit `prepareAt` → `latestStart` window. Each job is written with `prepareAt` at least 30 minutes before `openAt`, so a worst-case idle delay still leaves at least 15 minutes to prewarm Chrome and wait for the opening boundary. With no active job it does not connect to Chrome or poll the booking site. It claims each job atomically, so it cannot repeat a completed, failed, or missed booking attempt.
-
-Create the dispatcher plist once:
+Create the persistent dispatcher plist once:
 
 ```bash
-node src/create-launchd-dispatcher.mjs
+npm run create:dispatcher
 ```
 
-Then load it **once** from a normal macOS Terminal:
+Load it once from a normal macOS Terminal in the logged-in Aqua session:
 
 ```bash
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.hermes.hello-club.dispatcher.plist
 launchctl print gui/$(id -u)/com.hermes.hello-club.dispatcher
 ```
 
-After this one-time load, future booking requests need no Terminal command: the assistant writes a new protected `state/jobs/active.json`, and the dispatcher starts the local runner at the configured prewarm time. The job ID must be unique per target, and the dispatcher never retries a terminal/unknown result automatically.
+For diagnostics, the runner can be invoked in read-only mode:
 
-### One-shot agent: diagnostics only
+```bash
+npm run run:launchd -- \
+  --job /absolute/path/to/job.json \
+  --mode inspect \
+  --cdp-endpoint http://127.0.0.1:9223
+```
 
-`src/create-launchd-agent.mjs` can still generate a one-shot `watch` LaunchAgent for isolated diagnostics. It is not the normal future-booking workflow.
+`src/create-launchd-agent.mjs` generates a one-shot watch LaunchAgent for isolated diagnostics; it is not the normal scheduled-booking workflow.
 
 ## Local control panel
 
-The local, read-only control panel is served only on loopback at `http://127.0.0.1:8787`. It refreshes every five seconds and shows the persistent dispatcher, the dedicated Chrome/CDP connection, any active runner lock, the strictly configured active job, recent runner/dispatcher activity, and **only remote-verified bookings**.
+Start the read-only local panel:
 
 ```bash
 npm run panel
 ```
 
-It never exposes Chrome profile data, CDP URLs, raw page content, credentials, payment data, prompts, or arbitrary log contents. A preferred-court candidate from a read-only scan is intentionally not displayed as a booking. With no verified booking record, the confirmed-bookings list remains empty.
+Open `http://127.0.0.1:8787`. It shows safe status information for the dispatcher, Chrome/CDP reachability, active runner locks, any active job, recent activity, and only authenticated-remote verified bookings. The browser UI refreshes hourly; its remote booking cache is refreshed at most every 12 hours.
 
-## Safety policy
+The panel does not display raw page content, Chrome profile data, CDP details, credentials, cookies, payment data, prompts, or arbitrary log contents.
 
-- Court order is Court 4, Court 5, Court 6, then Court 1, 2, 3.
-- A complete interval is required; a single free half-hour is not enough.
-- Payment is never approved by default.
-- For an explicitly authorized unpaid hold, the payment-page `CANCEL` path must be used, then the pending booking must be verified; `REMOVE BOOKING` is never used in the booking path.
-- Unknown remote state blocks retries to avoid duplicate bookings.
-- The project never accepts credentials from chat, reads authentication cookies, or copies a Chrome profile.
+## Development
+
+```bash
+npm test
+```
+
+The project is intentionally private. Before committing, confirm that Git does not stage `state/`, environment files, Chrome profile data, screenshots, temporary scripts, or logs:
+
+```bash
+git status --short
+git check-ignore -v state/chrome-cdp-profile/Default/Cookies
+```

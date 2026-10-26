@@ -7,7 +7,7 @@ A profile-local Node.js/Playwright controller for **Wellington North Badminton S
 - Uses an existing normal Chrome session through a loopback-only Chrome DevTools Protocol (CDP) endpoint. It never types, stores, copies, or exports login credentials, cookies, or browser profiles.
 - Reads the rendered six-court booking grid and accepts only a complete requested interval, in the configured court priority order: **Court 4 → Court 5 → Court 6 → Court 1 → Court 2 → Court 3**.
 - Supports `inspect`, `watch`, and explicit `execute` modes. Only `execute` with `submit: true` can submit a booking.
-- Enforces the weekly opening rule: a target Monday becomes available at **07:00 Pacific/Auckland on the preceding Monday**. Prewarming is permitted, but grid scanning, selection, and submission wait until the exact opening instant and a fresh target-page reload.
+- Enforces the weekly opening rule: a target date becomes available at **07:00 Pacific/Auckland exactly seven calendar days earlier, on the same weekday**. For example, Tuesday 2026-11-03 opens Tuesday 2026-10-27 at 07:00 NZDT. Prewarming is permitted, but grid scanning, selection, and submission wait until the exact opening instant and a fresh target-page reload.
 - Verifies date, time, court, booking type, participants, and payment state against the authenticated remote calendar after submission. A local record alone never proves that a booking exists remotely.
 - Runs scheduled work through a logged-in macOS `launchd` LaunchAgent, rather than Hermes cron.
 

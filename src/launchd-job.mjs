@@ -1,3 +1,5 @@
+import { openingInstantForTargetDate } from './opening-window.mjs';
+
 const COURTS = new Set(['Court 1', 'Court 2', 'Court 3', 'Court 4', 'Court 5', 'Court 6']);
 const ALLOWED_KEYS = new Set([
   'id', 'date', 'start', 'end', 'openAt', 'prepareAt', 'latestStart', 'bookingType',
@@ -48,6 +50,8 @@ export function validateBookingJob(job, { mode = 'watch' } = {}) {
   assert(typeof job.end === 'string' && TIME.test(job.end), 'end must be a 30-minute HH:MM value');
   assert(halfHours(job.end) > halfHours(job.start), 'Booking range must end after it starts on the same date');
   const openAt = parseInstant(job.openAt, 'openAt');
+  const expectedOpenAt = openingInstantForTargetDate(job.date);
+  assert(openAt === expectedOpenAt, 'openAt must be 07:00 Pacific/Auckland on the target weekday seven days earlier');
   const prepareAt = job.prepareAt === undefined ? undefined : parseInstant(job.prepareAt, 'prepareAt');
   const latestStart = parseInstant(job.latestStart, 'latestStart');
   if (prepareAt !== undefined) assert(prepareAt <= openAt, 'prepareAt must not be later than openAt');

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateBookingJob, validateLoopbackCdpEndpoint } from '../src/launchd-job.mjs';
+import { openingInstantForTargetDate } from '../src/opening-window.mjs';
 import { boundedTimeoutMs } from '../src/launchd-runner.mjs';
 import { canReplaceDispatchMarker, dispatchAfterPrewarm, dispatchDecision, idleDelayMs } from '../src/launchd-dispatcher.mjs';
 import { buildLaunchAgentPlist, buildPersistentDispatcherPlist } from '../src/launchd-plist.mjs';
@@ -10,8 +11,8 @@ const validJob = () => ({
   date: '2026-10-26',
   start: '21:30',
   end: '23:00',
-  openAt: '2026-10-25T07:00:00+13:00',
-  latestStart: '2026-10-25T07:01:30+13:00',
+  openAt: '2026-10-19T07:00:00+13:00',
+  latestStart: '2026-10-19T07:01:30+13:00',
   bookingType: 'Stadium Pass - Singles',
   participants: ['Yufei Liu', 'Zijia Liu'],
   courtOrder: ['Court 4', 'Court 5', 'Court 6', 'Court 1', 'Court 2', 'Court 3'],
@@ -21,6 +22,19 @@ const validJob = () => ({
 
 test('accepts a complete safe local launchd job', () => {
   assert.deepEqual(validateBookingJob(validJob()), validJob());
+});
+
+test('derives the exact same-weekday seven-day opening instant', () => {
+  assert.equal(openingInstantForTargetDate('2026-11-03'), Date.parse('2026-10-27T07:00:00+13:00'));
+  assert.equal(openingInstantForTargetDate('2026-11-02'), Date.parse('2026-10-26T07:00:00+13:00'));
+});
+
+test('rejects a job whose opening instant is not the target weekday seven days earlier', () => {
+  const job = validJob();
+  job.date = '2026-11-03';
+  job.openAt = '2026-10-26T07:00:00+13:00';
+  job.latestStart = '2026-10-26T07:05:00+13:00';
+  assert.throws(() => validateBookingJob(job), /openAt.*seven days/i);
 });
 
 test('rejects unsafe CDP endpoints', () => {
@@ -95,12 +109,12 @@ test('re-dispatches immediately after a prewarm wait', async () => {
 });
 
 test('runs the persistent dispatcher only inside the prewarm window', () => {
-  const job = { ...validJob(), prepareAt: '2026-10-25T06:57:00+13:00' };
-  assert.equal(dispatchDecision(job, Date.parse('2026-10-25T06:56:59+13:00')).action, 'wait');
-  assert.equal(dispatchDecision(job, Date.parse('2026-10-25T06:57:00+13:00')).action, 'run');
-  assert.equal(dispatchDecision(job, Date.parse('2026-10-25T07:01:31+13:00')).action, 'missed');
+  const job = { ...validJob(), prepareAt: '2026-10-19T06:57:00+13:00' };
+  assert.equal(dispatchDecision(job, Date.parse('2026-10-19T06:56:59+13:00')).action, 'wait');
+  assert.equal(dispatchDecision(job, Date.parse('2026-10-19T06:57:00+13:00')).action, 'run');
+  assert.equal(dispatchDecision(job, Date.parse('2026-10-19T07:01:31+13:00')).action, 'missed');
   assert.equal(idleDelayMs(), 900_000);
-  assert.equal(idleDelayMs(Date.parse('2026-10-25T06:57:00+13:00') - Date.parse('2026-10-25T06:56:50+13:00')), 10_000);
+  assert.equal(idleDelayMs(Date.parse('2026-10-19T06:57:00+13:00') - Date.parse('2026-10-19T06:56:50+13:00')), 10_000);
 });
 
 test('builds a persistent Aqua dispatcher without KeepAlive loops', () => {

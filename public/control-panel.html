@@ -130,8 +130,9 @@
   </main>
   <script>
     const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-    const dateTime = (value) => value ? new Intl.DateTimeFormat('en-NZ', { dateStyle:'medium', timeStyle:'medium', timeZone:'Pacific/Auckland' }).format(new Date(value)) : '—';
-    const dateOnly = (value) => value ? new Intl.DateTimeFormat('en-NZ', { weekday:'short', day:'numeric', month:'short', year:'numeric', timeZone:'Pacific/Auckland' }).format(new Date(`${value}T12:00:00+13:00`)) : '—';
+    const nzDateParts = (value) => value ? Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone:'Pacific/Auckland', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23' }).formatToParts(new Date(value)).filter(p => p.type !== 'literal').map(p => [p.type, p.value])) : null;
+    const dateTime = (value) => { const p = nzDateParts(value); return p ? `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}` : '—'; };
+    const dateOnly = (value) => value ? String(value) : '—';
     const badge = (status) => {
       const s = String(status || 'unknown'); const cls = /complete|running|reachable|confirmed|free/.test(s) ? '' : /fail|miss|timeout|unavailable|late/.test(s) ? 'bad' : 'warn';
       return `<span class="pill ${cls}">${esc(s.replaceAll('_',' '))}</span>`;

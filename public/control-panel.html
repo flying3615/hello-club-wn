@@ -50,9 +50,20 @@
     .dot.bad { background:var(--red); box-shadow:0 0 0 4px var(--red-soft); }
     .detail { color:var(--muted); font-size:13px; line-height:1.5; }
     .empty { padding:29px 20px; color:var(--muted); font-size:14px; line-height:1.55; }
-    .job { padding:20px; }
-    .job-title { display:flex; align-items:flex-start; justify-content:space-between; gap:15px; margin-bottom:16px; }
-    .job-title strong { font-size:18px; letter-spacing:-.02em; }
+    .booking-focus { padding:22px; }
+    .focus-grid { display:grid; grid-template-columns:1.35fr 1fr; gap:18px; align-items:stretch; }
+    .focus-block { padding:17px 18px; border:1px solid var(--line); border-radius:10px; background:color-mix(in srgb, var(--green-soft) 26%, transparent); }
+    .focus-block.opening { background:color-mix(in srgb, var(--amber-soft) 35%, transparent); }
+    .focus-label { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+    .focus-icon { width:20px; height:20px; display:inline-grid; place-items:center; border-radius:6px; background:var(--card); color:var(--green); font-size:13px; }
+    .opening .focus-icon { color:var(--amber); }
+    .focus-value { margin-top:10px; font-size:clamp(23px, 3vw, 34px); font-weight:780; letter-spacing:-.045em; line-height:1.05; }
+    .focus-value time { font:inherit; font-variant-numeric:tabular-nums; }
+    .focus-detail { margin-top:6px; color:var(--muted); font-size:13px; }
+    .job-meta { display:flex; flex-wrap:wrap; gap:8px 16px; padding:15px 2px 0; color:var(--muted); font-size:12px; }
+    .job-meta span { display:inline-flex; align-items:center; gap:6px; }
+    .job-meta b { color:var(--ink); font-weight:650; }
+    .icon-status { width:24px; height:24px; display:inline-grid; place-items:center; border-radius:7px; color:var(--muted); background:color-mix(in srgb, var(--line) 45%, transparent); font-size:13px; }
     .pill { display:inline-flex; align-items:center; min-height:23px; padding:3px 9px; border-radius:99px; background:var(--green-soft); color:var(--green); font-size:11px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
     .pill.warn { background:var(--amber-soft); color:var(--amber); }.pill.bad { background:var(--red-soft); color:var(--red); }.pill.slate { background:color-mix(in srgb, var(--line) 55%, transparent); color:var(--slate); }
     dl { display:grid; grid-template-columns:1fr; gap:13px; margin:0; }
@@ -76,7 +87,7 @@
     details.secondary summary::-webkit-details-marker { display:none; }
     details.secondary summary::after { content:'+'; color:var(--muted); font-size:18px; font-weight:400; } details.secondary[open] summary::after { content:'−'; }
     details.secondary .secondary-body { border-top:1px solid var(--line); }
-    @media (max-width:880px) { .grid { grid-template-columns:1fr; }.full{grid-column:auto}.processes{grid-template-columns:1fr}.process{border-right:0;border-bottom:1px solid var(--line)}.process:last-child{border-bottom:0} details.secondary{grid-column:auto} }
+    @media (max-width:880px) { .grid { grid-template-columns:1fr; }.full{grid-column:auto}.focus-grid{grid-template-columns:1fr}.processes{grid-template-columns:1fr}.process{border-right:0;border-bottom:1px solid var(--line)}.process:last-child{border-bottom:0} details.secondary{grid-column:auto} }
     @media (max-width:620px) { .wrap{width:min(100% - 24px, 1440px); padding-top:20px} header{align-items:flex-start; flex-direction:column}.refresh{text-align:left} dl{grid-template-columns:1fr}.heading{padding:15px 16px}.job{padding:16px}.status-item{padding:8px 10px} }
     @media (prefers-reduced-motion:no-preference) { .dot.good { animation:pulse 2s ease-in-out infinite; } @keyframes pulse { 50%{ box-shadow:0 0 0 7px transparent;} } }
   </style>
@@ -87,7 +98,7 @@
       <div>
         <div class="eyebrow">Wellington North Badminton Stadium</div>
         <h1>Booking monitor</h1>
-        <p class="sub">Live, read-only view of the local scheduler, Chrome/CDP connection, booking watcher activity, and bookings synchronized from Hello Club.</p>
+        <p class="sub">Read-only scheduler and verified bookings.</p>
       </div>
       <div class="refresh"><strong id="updated">Loading status…</strong><span>Auto-refreshes every hour</span></div>
     </header>
@@ -96,7 +107,7 @@
 
     <div class="grid">
       <section>
-        <div class="heading"><h2>Active booking job</h2><span class="note">Exact configuration only</span></div>
+        <div class="heading"><h2>Next booking</h2><span class="note">date · time · opening</span></div>
         <div id="active-job"></div>
         <div class="safety" id="safety"></div>
       </section>
@@ -137,15 +148,15 @@
         statusItem('Runner', runner.state === 'running' ? 'watching' : 'idle', runner.state === 'running' ? 'good' : 'warn'),
       ].join('');
     }
-    function activeJobTable(job, status) {
-      const opening = job.prepareAt ? `${dateTime(job.prepareAt)}<br><span class="muted">opens ${dateTime(job.openAt)}</span>` : dateTime(job.openAt);
-      return `<div class="table-wrap"><table><thead><tr><th>Job</th><th>Date & time</th><th>Court priority</th><th>Players</th><th>Opening</th><th>Status</th></tr></thead><tbody><tr><td class="mono">${esc(job.id)}</td><td class="tight">${dateOnly(job.date)}<br><span class="mono muted">${esc(job.start)}–${esc(job.end)}</span></td><td>${esc(job.courtOrder.join(' → '))}</td><td>${esc(job.participants.join(' · '))}</td><td class="tight">${opening}</td><td>${badge(status)}</td></tr></tbody></table></div>`;
+    function activeBookingFocus(job, status) {
+      const opening = job.openAt ? dateTime(job.openAt) : '—';
+      return `<div class="booking-focus"><div class="focus-grid"><div class="focus-block"><div class="focus-label"><span class="focus-icon" data-icon="calendar">▣</span>Date & time</div><div class="focus-value">${dateOnly(job.date)}<br><time>${esc(job.start)}–${esc(job.end)}</time></div><div class="focus-detail">${badge(status)}</div></div><div class="focus-block opening"><div class="focus-label"><span class="focus-icon" data-icon="opening">◷</span>Opening</div><div class="focus-value"><time>${opening}</time></div><div class="focus-detail">prewarm ${job.prepareAt ? dateTime(job.prepareAt) : 'not needed'}</div></div></div><div class="job-meta"><span><span class="icon-status">⌁</span><b>${esc(job.courtOrder.join(' → '))}</b></span><span><span class="icon-status">◎</span>${esc(job.participants.join(' · '))}</span><span><span class="icon-status">◇</span>${esc(job.bookingType)}</span></div></div>`;
     }
     function renderJob(job) {
       const container = document.querySelector('#active-job');
-      if (!job) { container.innerHTML = '<div class="empty">No active booking job is scheduled. The dispatcher remains loaded, but it does not open Chrome or the booking page while no job is present.</div>'; return; }
+      if (!job) { container.innerHTML = '<div class="empty">No booking waiting for an opening.</div>'; return; }
       const status = job.dispatch?.status || 'scheduled';
-      container.innerHTML = activeJobTable(job, status);
+      container.innerHTML = activeBookingFocus(job, status);
     }
     function bookingTable(bookings) {
       return `<div class="table-wrap"><table><thead><tr><th>Date & time</th><th>Court</th><th>Booking type</th><th>Players</th><th>Payment</th><th>Remote sync</th></tr></thead><tbody>${bookings.map(b => `<tr><td class="tight">${dateOnly(b.date)}<br><span class="mono muted">${esc(b.start)}–${esc(b.end)}</span></td><td>${esc(b.court)}</td><td>${esc(b.bookingType)}</td><td>${esc(b.participants.join(' · '))}</td><td>${badge(b.paymentStatus)}</td><td><time>${dateTime(b.verifiedAt)}</time></td></tr>`).join('')}</tbody></table></div>`;

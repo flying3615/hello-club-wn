@@ -17,7 +17,9 @@ A successful real booking has been submitted and remotely verified with this pro
 
 - A job is schema-validated and must use a loopback CDP endpoint, an exact half-hour range, `Stadium Pass - Singles`, exactly two named participants, an allowed court order, opening and late-start timestamps, `paymentPolicy: "cancel-on-payment"`, and an explicit boolean `submit` field.
 - `execute` requires `submit: true`; all other modes are read-only.
-- Payment is never automatically approved. If Hello Club hands off to a payment page, the only permitted action is **CANCEL**; the automation never clicks **NEXT**, enters payment data, or uses **REMOVE BOOKING**.
+- Payment is never automatically approved. If Hello Club hands off to a payment page, the only permitted action is **CANCEL**, and only on the authenticated `/account/booking/<id>` page whose rendered venue, date, start time, and court match the job. The public `/booking/<id>` handoff is refused because its CANCEL flow can remove the booking. The automation never clicks **NEXT**, enters payment data, confirms a cancel-booking dialog, or uses **REMOVE BOOKING**.
+- The final review and member picker are read as structured DOM lists, not free text. Any extra member, visitor, or service tag causes the submission to stop before **CONFIRM BOOKING**.
+- The payment-page booking ID, when present, must match the newly created remote record; a same-shaped booking on another record is never accepted as evidence.
 - The local control panel is loopback-only and read-only. It cannot create, change, pay for, remove, or cancel bookings.
 - Runtime state is intentionally excluded from Git: `state/` contains the Chrome profile, jobs, booking records, logs, diagnostics, and screenshots.
 
@@ -63,25 +65,58 @@ The watcher disconnects from CDP when it finishes; it never closes the user’s 
 
 ## Scheduled booking workflow
 
-The normal automated workflow is a persistent user LaunchAgent:
+The normal automated workflow uses a logged-in macOS `launchd` LaunchAgent plus a one-time RTC wake plan. It is designed for an always-powered Mac mini that may be sleeping overnight:
 
-1. An explicit job is placed at `state/jobs/active.json` with restrictive permissions.
-2. The dispatcher performs a low-overhead idle check every 15 minutes. It only starts the runner inside the job’s explicit `prepareAt` → `latestStart` window.
-3. The runner may prewarm before the opening instant, but waits until `openAt` before scanning, selecting, or submitting.
-4. In `execute` mode, the runner submits only when `submit: true`, then requires authenticated remote-calendar evidence before recording success.
+1. An explicit job is created through `npm run schedule:job`. The command derives `openAt`, the exact three-minute `prepareAt` lead, and the default `latestStart`, validates the job, arms the RTC wake, and writes `state/jobs/active.json` atomically with restrictive permissions. A terminal job (completed, failed, or missed) is archived under `state/jobs/<status>/` and its dispatch marker is cleared, so the next job can be scheduled.
+2. The job’s RTC plan wakes the Mac at **06:53 Pacific/Auckland**, four minutes before the fixed **06:57** prewarm time. After the one-time restricted helper installation below, job creation arms this wake automatically; it never stores an administrator password or grants arbitrary root access.
+3. The persistent dispatcher has an exact daily **06:55** `StartCalendarInterval`. It exits immediately on unrelated days, waits locally through `prepareAt`, and invokes the runner only within the job’s explicit prewarm → late-start window. The runner is wrapped in `caffeinate` only after it has started.
+4. The runner waits until `openAt` before scanning, selecting, or submitting. In `execute` mode it submits only when `submit: true`, then requires authenticated remote-calendar evidence before recording success.
 
-Create the persistent dispatcher plist once:
+Preview a job without arming the wake or writing `active.json`, then create it by removing `--dry-run`:
+
+```bash
+npm run schedule:job -- \
+  --date 2026-11-06 \
+  --start 17:00 \
+  --end 18:00 \
+  --participants "Yufei Liu,Zijia Liu" \
+  --submit true \
+  --dry-run
+```
+
+`--submit` defaults to `false`; only an explicit `--submit true` creates an executing job. Use `--courts` to override the court priority order and `--id` to choose a stable job ID.
+
+> **macOS launchd note:** launchd agents cannot read a checkout under `~/Documents` without Full Disk Access; the agent exits with `EX_CONFIG` 78 and the log shows `Operation not permitted`. Run the dispatcher from a non-protected runtime copy instead. On this machine the runtime copy lives under `~/.hermes/profiles/<profile>/projects/hello-club-playwright`; after editing the git checkout, sync `src`, `templates`, `public`, `package.json`, and `node_modules` there before scheduling. Do not create the active job in a checkout that launchd cannot read.
+
+Create or regenerate the persistent dispatcher plist:
 
 ```bash
 npm run create:dispatcher
 ```
 
-Load it once from a normal macOS Terminal in the logged-in Aqua session:
+Reload it once from a normal macOS Terminal in the logged-in Aqua session:
 
 ```bash
+launchctl bootout gui/$(id -u)/com.hermes.hello-club.dispatcher 2>/dev/null || true
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.hermes.hello-club.dispatcher.plist
 launchctl print gui/$(id -u)/com.hermes.hello-club.dispatcher
 ```
+
+### One-time RTC helper installation
+
+From the **project root** (`hello-club-playwright`), run the following reviewed installation once in a normal macOS Terminal. `pmset` requires root authority; the installed helper accepts **no arguments**, reads only `state/wake/rtc-wake.txt` from its invocation working directory (the project root, set by `npm run schedule:job`), and can invoke only `/usr/bin/pmset schedule wake`. Reinstall the helper after updating this template.
+
+```bash
+sudo install -d -o root -g wheel -m 755 /usr/local/libexec
+sudo install -o root -g wheel -m 755 "$PWD/templates/hello-club-arm-rtc-wake" /usr/local/libexec/hello-club-arm-rtc-wake
+sudo visudo -cf "$PWD/templates/hello-club-rtc-wake.sudoers"
+sudo install -o root -g wheel -m 440 "$PWD/templates/hello-club-rtc-wake.sudoers" /etc/sudoers.d/hello-club-rtc-wake
+sudo visudo -cf /etc/sudoers.d/hello-club-rtc-wake
+```
+
+After this one-time installation, future job creation calls the no-password, no-argument helper through `npm run arm:wake -- --job /absolute/path/to/job.json`. Before and after arming, the code reads `/usr/bin/pmset -g sched`: an already-matching event is reused without sudo, any other event owned by `com.hermes.hello-club` is a conflict, and the job is armed only when read-back shows exactly one matching wake event. The job is not created if any of those checks fail. No administrator password is stored.
+
+The wake is a one-time event. It works after normal **Sleep**, not after shutdown; keep the Mac mini on AC power and remain logged in. Do not use `pmset schedule cancelall`, because it can remove unrelated macOS wake events.
 
 For diagnostics, the runner can be invoked in read-only mode:
 
@@ -102,7 +137,7 @@ Start the read-only local panel:
 npm run panel
 ```
 
-Open `http://127.0.0.1:8787`. It shows safe status information for the dispatcher, Chrome/CDP reachability, active runner locks, any active job, recent activity, and only authenticated-remote verified bookings. The browser UI refreshes hourly; its remote booking cache is refreshed at most every 12 hours.
+Open `http://127.0.0.1:8787`. It shows safe status information for the dispatcher, Chrome/CDP reachability, active runner locks, any active job, recent activity, and only authenticated-remote verified bookings. When the most recent runner attempt failed, a separate notice shows the job date/time, the reason, whether a booking was created, and the next safe action; dispatcher health is reported independently from that failed attempt. The browser UI refreshes hourly; its remote booking cache is refreshed at most every 12 hours.
 
 The panel does not display raw page content, Chrome profile data, CDP details, credentials, cookies, payment data, prompts, or arbitrary log contents.
 

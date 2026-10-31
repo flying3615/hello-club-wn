@@ -2,11 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import process from 'node:process';
+import { archiveActiveJob } from './job-lifecycle.mjs';
 import { validateBookingJob } from './launchd-job.mjs';
 
 const PROJECT_DIR = path.resolve(new URL('..', import.meta.url).pathname);
 const STATE_DIR = path.join(PROJECT_DIR, 'state', 'launchd');
 const RUNNER = path.join(PROJECT_DIR, 'src', 'launchd-runner.mjs');
+const EXACT_PREWARM_LEAD_MS = 2 * 60_000;
 
 function parseArgs(argv) {
   const result = {};
@@ -26,6 +28,14 @@ export function dispatchDecision(job, nowMs = Date.now()) {
   return { action: 'run' };
 }
 
+export function prewarmDispatchDecision(job, nowMs = Date.now()) {
+  if (!job.prepareAt) throw new Error('Persistent dispatcher requires prepareAt');
+  const prepareAt = Date.parse(job.prepareAt);
+  if (!Number.isFinite(prepareAt)) throw new Error('Invalid dispatch timestamps');
+  if (nowMs < prepareAt - EXACT_PREWARM_LEAD_MS) return { action: 'not_due' };
+  return dispatchDecision(job, nowMs);
+}
+
 export function idleDelayMs(untilMs = 900_000) {
   return Math.max(1_000, Math.min(900_000, untilMs));
 }
@@ -37,6 +47,80 @@ function publicResult(result) {
 }
 
 const TERMINAL_MARKER_STATUSES = new Set(['completed', 'failed', 'missed']);
+const STALE_RUNNING_MARKER_MS = 15 * 60_000;
+
+export function isStaleRunningMarker(marker, nowMs = Date.now(), maxAgeMs = STALE_RUNNING_MARKER_MS) {
+  if (marker?.status !== 'running') return false;
+  const startedAt = Date.parse(marker.timestamp);
+  return Number.isFinite(startedAt) && nowMs - startedAt > maxAgeMs;
+}
+
+async function hasLiveRunnerLock() {
+  const directory = path.join(STATE_DIR, 'launchd', 'locks');
+  try {
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.lock')) continue;
+      try {
+        const lock = JSON.parse(await fs.readFile(path.join(directory, entry.name), 'utf8'));
+        if (!Number.isInteger(lock?.pid)) continue;
+        try {
+          process.kill(lock.pid, 0);
+          return true;
+        } catch (probe) {
+          if (probe.code !== 'ESRCH') return true;
+        }
+      } catch {
+        // A malformed lock cannot prove a live runner.
+      }
+    }
+    return false;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    return true;
+  }
+}
+
+function markerFile(jobId) {
+  return path.join(STATE_DIR, 'dispatch', `${jobId}.json`);
+}
+
+async function clearDispatchMarker(jobId) {
+  return withMarkerLock(jobId, async (file) => {
+    await fs.rm(file, { force: true });
+    return true;
+  });
+}
+
+async function archiveTerminalActiveJob(jobFile, job, status, result) {
+  try {
+    const archivedTo = await archiveActiveJob({ jobFile, job, status });
+    if (archivedTo) {
+      result.archivedTo = archivedTo;
+      await clearDispatchMarker(job.id);
+    }
+  } catch (error) {
+    result.archiveError = String(error.message || error).slice(0, 200);
+  }
+  return result;
+}
+
+async function recoverTerminalActiveJob(jobFile, job) {
+  const marker = await readMarker(markerFile(job.id));
+  let status = marker?.status;
+  if (status === 'running') {
+    if (!isStaleRunningMarker(marker) || await hasLiveRunnerLock()) return null;
+    status = 'failed';
+  }
+  if (!TERMINAL_MARKER_STATUSES.has(status)) return null;
+  try {
+    const archivedTo = await archiveActiveJob({ jobFile, job, status });
+    if (archivedTo) await clearDispatchMarker(job.id);
+    return archivedTo;
+  } catch {
+    return null;
+  }
+}
 
 export function canReplaceDispatchMarker(currentStatus) {
   return currentStatus === 'running';
@@ -47,19 +131,40 @@ async function withMarkerLock(jobId, action) {
   const locks = path.join(directory, '.locks');
   await fs.mkdir(locks, { recursive: true, mode: 0o700 });
   const lock = path.join(locks, `${jobId}.lock`);
-  let handle;
-  try {
-    handle = await fs.open(lock, 'wx', 0o600);
-  } catch (error) {
-    if (error.code === 'EEXIST') return false;
-    throw error;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let handle;
+    try {
+      handle = await fs.open(lock, 'wx', 0o600);
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      let existing = null;
+      try {
+        existing = JSON.parse(await fs.readFile(lock, 'utf8'));
+      } catch {
+        existing = null;
+      }
+      let alive = false;
+      if (Number.isInteger(existing?.pid)) {
+        try {
+          process.kill(existing.pid, 0);
+          alive = true;
+        } catch (probe) {
+          alive = probe.code !== 'ESRCH';
+        }
+      }
+      if (alive) return false;
+      await fs.rm(lock, { force: true });
+      continue;
+    }
+    try {
+      await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+      return await action(path.join(directory, `${jobId}.json`));
+    } finally {
+      await handle.close();
+      await fs.rm(lock, { force: true });
+    }
   }
-  try {
-    return await action(path.join(directory, `${jobId}.json`));
-  } finally {
-    await handle.close();
-    await fs.rm(lock, { force: true });
-  }
+  return false;
 }
 
 async function readMarker(file) {
@@ -124,7 +229,10 @@ export async function dispatch({ jobFile, nowMs = Date.now() }) {
   const parsedJob = JSON.parse(await fs.readFile(jobFile, 'utf8'));
   const mode = parsedJob.submit ? 'execute' : 'watch';
   const job = validateBookingJob(parsedJob, { mode });
-  const decision = dispatchDecision(job, nowMs);
+  const decision = prewarmDispatchDecision(job, nowMs);
+  if (decision.action === 'not_due') {
+    return { status: 'not_due', jobId: job.id, timestamp: new Date().toISOString() };
+  }
   if (decision.action === 'wait') {
     return {
       status: 'waiting', jobId: job.id, timestamp: new Date().toISOString(),
@@ -134,11 +242,19 @@ export async function dispatch({ jobFile, nowMs = Date.now() }) {
   if (decision.action === 'missed') {
     const result = { status: 'missed', jobId: job.id, timestamp: new Date().toISOString(), reason: 'latest_start_passed' };
     const recorded = await recordMissedMarker(job.id, result);
-    return recorded ? result : { status: 'already_terminal_or_running', jobId: job.id, timestamp: new Date().toISOString() };
+    if (recorded) {
+      await archiveTerminalActiveJob(jobFile, job, 'missed', result);
+      return result;
+    }
+    await recoverTerminalActiveJob(jobFile, job);
+    return { status: 'already_terminal_or_running', jobId: job.id, timestamp: new Date().toISOString() };
   }
 
   const claimed = await claimMarker(job.id, { status: 'running', jobId: job.id, timestamp: new Date().toISOString() });
-  if (!claimed) return { status: 'already_terminal_or_running', jobId: job.id, timestamp: new Date().toISOString() };
+  if (!claimed) {
+    await recoverTerminalActiveJob(jobFile, job);
+    return { status: 'already_terminal_or_running', jobId: job.id, timestamp: new Date().toISOString() };
+  }
   let exitCode = 1;
   try {
     exitCode = await runRunner(jobFile, mode);
@@ -147,6 +263,7 @@ export async function dispatch({ jobFile, nowMs = Date.now() }) {
   }
   const result = { status: exitCode === 0 ? 'completed' : 'failed', jobId: job.id, timestamp: new Date().toISOString(), exitCode };
   await finishMarker(job.id, result);
+  await archiveTerminalActiveJob(jobFile, job, result.status, result);
   return result;
 }
 

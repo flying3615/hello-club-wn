@@ -27,8 +27,43 @@ export async function connectExistingChrome(endpoint = DEFAULT_CDP_ENDPOINT) {
 
 export function isBookingContentReady(bodyText) {
   const text = String(bodyText || '').trim();
-  if (!text || text === 'Loading...') return false;
+  if (!text || /^Loading(?:\.\.\.|…)/.test(text)) return false;
   return /Court\s+[1-6]/i.test(text) && text.length >= 30;
+}
+
+export async function isPagePreloading(page) {
+  return page.evaluate(() => {
+    const text = String(document.body?.innerText || '').trim();
+    if (/^Loading(?:\.\.\.|…)/.test(text)) return true;
+    const preloader = document.querySelector('#Preloader');
+    if (preloader) {
+      const style = getComputedStyle(preloader);
+      if (style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0) return true;
+    }
+    const host = document.querySelector('booking-grid');
+    const ctrl = host && window.angular ? window.angular.element(host).scope?.()?.$ctrl : null;
+    return Boolean(ctrl && Array.isArray(ctrl.loadOps) && ctrl.loadOps.length > 0);
+  });
+}
+
+export async function waitForBookingGridReady(page, timeout = 30_000) {
+  await page.waitForFunction(() => {
+    const text = String(document.body?.innerText || '').trim();
+    if (/^Loading(?:\.\.\.|…)/.test(text)) return false;
+    const preloader = document.querySelector('#Preloader');
+    if (preloader) {
+      const style = getComputedStyle(preloader);
+      if (style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0) return false;
+    }
+    const grid = [...document.querySelectorAll('.BookingGrid')]
+      .find((candidate) => candidate.querySelectorAll('.BookingGrid-column booking-grid-slot').length >= 48 * 6);
+    if (!grid) return false;
+    const host = grid.closest('booking-grid');
+    const ctrl = host && window.angular ? window.angular.element(host).scope?.()?.$ctrl : null;
+    if (!ctrl || ctrl.hasLoadedData !== true) return false;
+    if (Array.isArray(ctrl.loadOps) && ctrl.loadOps.length > 0) return false;
+    return document.querySelectorAll('booking-grid-slot.ng-animate').length === 0;
+  }, { timeout });
 }
 
 export async function openRawBookingPage(context, date, baseUrl = DEFAULT_BASE_URL) {
@@ -42,15 +77,23 @@ export async function openRawBookingPage(context, date, baseUrl = DEFAULT_BASE_U
   return page;
 }
 
+export function isTargetBookingUrl(currentUrl, targetUrl) {
+  try {
+    const current = new URL(currentUrl);
+    const target = new URL(targetUrl);
+    return current.origin === target.origin && current.pathname === target.pathname;
+  } catch {
+    return false;
+  }
+}
+
 export async function openBookingPage(context, date, baseUrl = DEFAULT_BASE_URL) {
+  const targetUrl = bookingUrl(date, baseUrl);
   const page = await openRawBookingPage(context, date, baseUrl);
-  await page.waitForFunction(
-    () => {
-      const text = document.body?.innerText || '';
-      return text.trim() !== 'Loading...' && /Court\s+[1-6]/i.test(text) && text.length >= 30;
-    },
-    { timeout: 30_000 },
-  );
+  await waitForBookingGridReady(page);
+  if (!isTargetBookingUrl(page.url(), targetUrl)) {
+    throw new Error(`Booking page did not open the target date ${date}; it redirected to ${page.url()}`);
+  }
   return page;
 }
 

@@ -41,6 +41,7 @@ export function buildPersistentDispatcherPlist({ label, nodePath, projectDir, jo
   <key>LimitLoadToSessionType</key><string>Aqua</string>
   <key>ProcessType</key><string>Background</string>
   <key>StartInterval</key><integer>900</integer>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>55</integer></dict>
   <key>KeepAlive</key><false/>
   <key>RunAtLoad</key><true/>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>/usr/local/bin:/usr/bin:/bin</string></dict>

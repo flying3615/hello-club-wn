@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { promisify } from 'node:util';
 import {
-  presentActivity, publicBooking, publicDispatch, publicJob, publicRun, readJsonLines,
+  explainRunFailure, presentActivity, publicBooking, publicDispatch, publicJob, publicRun, readJsonLines,
 } from './control-panel-data.mjs';
 import { createRemoteBookingCache, partitionRemoteBookings, readRemoteBookings } from './remote-bookings.mjs';
 
@@ -34,6 +34,36 @@ async function readJsonFile(file, mapper) {
     if (error.code === 'ENOENT') return null;
     return null;
   }
+}
+
+async function readArchivedJob(jobId) {
+  if (typeof jobId !== 'string' || !/^[a-z0-9][a-z0-9-]{2,63}$/.test(jobId)) return null;
+  for (const status of ['failed', 'completed', 'missed']) {
+    const job = await readJsonFile(path.join(STATE_DIR, 'jobs', status, `${jobId}.json`), publicJob);
+    if (job) return job;
+  }
+  return null;
+}
+
+async function readLatestArchivedJob(status) {
+  const directory = path.join(STATE_DIR, 'jobs', status);
+  try {
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    const files = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map((entry) => path.join(directory, entry.name));
+    const dated = await Promise.all(files.map(async (file) => ({
+      file,
+      mtime: (await fs.stat(file)).mtimeMs,
+    })));
+    dated.sort((left, right) => right.mtime - left.mtime);
+    for (const { file } of dated) {
+      const job = await readJsonFile(file, publicJob);
+      if (job) return job;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function field(text, label) {
@@ -74,7 +104,7 @@ async function chromeProcess() {
       line.includes('Google Chrome') && line.includes('--remote-debugging-port=9223')
     ));
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -104,20 +134,28 @@ export async function buildStatus() {
   const marker = activeJob
     ? await readJsonFile(path.join(STATE_DIR, 'launchd', 'dispatch', `${activeJob.id}.json`), publicDispatch)
     : null;
+  const lastRun = runs[0] || null;
+  const lastJob = lastRun?.status === 'failed'
+    ? (lastRun.jobId ? await readArchivedJob(lastRun.jobId) : await readLatestArchivedJob('failed'))
+    : null;
+  const lastFailure = lastRun?.status === 'failed' ? explainRunFailure(lastRun, lastJob) : null;
   const now = new Date().toISOString();
   const groupedBookings = partitionRemoteBookings(remote.bookings, now);
+  const chromeReady = chrome === null ? cdp.reachable : chrome || cdp.reachable;
   return {
     generatedAt: now,
     safety: {
       mode: 'read_only',
-      message: 'This panel cannot select, submit, pay for, remove, or change a booking.',
+      message: '此面板只读，不能选择、提交、支付、取消或修改预约。',
     },
     processes: {
       dispatcher,
-      chrome: { processDetected: chrome, cdpReachable: cdp.reachable },
+      chrome: { processDetected: chromeReady, cdpReachable: cdp.reachable },
       runner: { activeJobIds: locks, state: locks.length ? 'running' : 'idle' },
     },
     activeJob: activeJob ? { ...activeJob, dispatch: marker } : null,
+    lastRun,
+    lastFailure,
     activity: presentActivity({ dispatches: marker ? [marker, ...dispatches] : dispatches, runs }),
     bookings: {
       upcoming: groupedBookings.upcoming.map(publicBooking).filter(Boolean),

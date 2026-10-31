@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  parseJsonLines, presentActivity, publicBooking, publicDispatch, publicJob, publicRun, readJsonLines, safeErrorCode,
+  explainRunFailure, parseJsonLines, presentActivity, publicBooking, publicDispatch, publicJob, publicRun, readJsonLines, safeErrorCode,
 } from '../src/control-panel-data.mjs';
 import { REMOTE_BOOKING_SYNC_TTL_MS } from '../src/control-panel-server.mjs';
 
@@ -77,4 +77,31 @@ test('ignores malformed JSONL lines and puts latest activity first', () => {
   assert.equal(activity.length, 2);
   assert.equal(activity[0].kind, 'dispatcher');
   assert.equal(activity[1].kind, 'runner');
+});
+
+test('explains the opening-grid failure with the failed job interval', () => {
+  const run = {
+    status: 'failed', jobId: '2026-11-08-1800', timestamp: '2026-10-31T18:00:18.954Z',
+    errorCode: 'Opening grid was not ready with a complete permitted interval',
+  };
+  const job = { id: '2026-11-08-1800', date: '2026-11-08', start: '18:00', end: '19:00' };
+  const failure = explainRunFailure(run, job);
+  assert.equal(failure.title, '上次预约未成功');
+  assert.match(failure.reason, /18:00–19:00/);
+  assert.match(failure.action, /未创建预约/);
+  assert.equal(failure.attemptedAt, run.timestamp);
+  assert.deepEqual(failure.job, job);
+  assert.equal(failure.code, run.errorCode);
+  assert.equal(explainRunFailure({ status: 'completed', timestamp: run.timestamp }), null);
+});
+
+test('does not claim no booking when payment or remote verification is uncertain', () => {
+  const payment = explainRunFailure({ status: 'failed', errorCode: 'Payment handoff is not an authenticated account payment page' });
+  assert.match(payment.action, /未批准任何支付/);
+  assert.doesNotMatch(payment.action, /未创建预约/);
+  const remote = explainRunFailure({ status: 'failed', errorCode: 'Remote calendar did not show a newly created exact booking in time' });
+  assert.match(remote.action, /可能已存在预约/);
+  const unknown = explainRunFailure({ status: 'failed', errorCode: 'password missing for user' });
+  assert.equal(unknown.code, 'redacted_error');
+  assert.match(unknown.action, /远端日历确认/);
 });

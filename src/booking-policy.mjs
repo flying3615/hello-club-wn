@@ -35,20 +35,24 @@ function hasCompleteInterval(slots, target) {
   return intervalKeys(target.start, target.end).every((key) => available.get(key) === true);
 }
 
-export function chooseCourt(availability, target, courtOrder = DEFAULT_COURT_ORDER) {
+export function orderedAvailableCourts(availability, target, courtOrder = DEFAULT_COURT_ORDER) {
   const byCourt = new Map(availability.map((item) => [item.court, item]));
-  const checked = [];
-
-  for (const court of courtOrder) {
-    checked.push(court);
+  return courtOrder.filter((court) => {
     const candidate = byCourt.get(court);
-    if (candidate && hasCompleteInterval(candidate.slots, target)) {
-      return { court, reason: 'complete_interval', checked };
-    }
+    return candidate && hasCompleteInterval(candidate.slots, target);
+  });
+}
+
+export function chooseCourt(availability, target, courtOrder = DEFAULT_COURT_ORDER) {
+  const candidates = orderedAvailableCourts(availability, target, courtOrder);
+  if (candidates.length > 0) {
+    const court = candidates[0];
+    const checked = courtOrder.slice(0, courtOrder.indexOf(court) + 1);
+    return { court, reason: 'complete_interval', checked };
   }
 
   const error = new Error(`No complete interval available for ${target.start}-${target.end}`);
-  error.checked = checked;
+  error.checked = [...courtOrder];
   throw error;
 }
 

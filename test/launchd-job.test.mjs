@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { validateBookingJob, validateLoopbackCdpEndpoint } from '../src/launchd-job.mjs';
 import { openingInstantForTargetDate } from '../src/opening-window.mjs';
 import { boundedTimeoutMs } from '../src/launchd-runner.mjs';
-import { canReplaceDispatchMarker, dispatchAfterPrewarm, dispatchDecision, idleDelayMs } from '../src/launchd-dispatcher.mjs';
+import { canReplaceDispatchMarker, dispatchAfterPrewarm, dispatchDecision, idleDelayMs, isStaleRunningMarker, prewarmDispatchDecision } from '../src/launchd-dispatcher.mjs';
 import { buildLaunchAgentPlist, buildPersistentDispatcherPlist } from '../src/launchd-plist.mjs';
+import { buildRtcWakePlan } from '../src/rtc-wake.mjs';
 
 const validJob = () => ({
   id: 'monday-evening-watch',
@@ -88,6 +89,14 @@ test('preserves a terminal dispatch marker against later missed checks', () => {
   assert.equal(canReplaceDispatchMarker('running', 'completed'), true);
 });
 
+test('treats only an aged running marker as stale', () => {
+  const now = Date.parse('2026-10-30T08:00:00.000Z');
+  assert.equal(isStaleRunningMarker({ status: 'running', timestamp: '2026-10-30T07:46:00.000Z' }, now), false);
+  assert.equal(isStaleRunningMarker({ status: 'running', timestamp: '2026-10-30T07:44:00.000Z' }, now), true);
+  assert.equal(isStaleRunningMarker({ status: 'completed', timestamp: '2026-10-30T07:00:00.000Z' }, now), false);
+  assert.equal(isStaleRunningMarker({ status: 'running', timestamp: 'not-a-time' }, now), false);
+});
+
 test('re-dispatches immediately after a prewarm wait', async () => {
   const calls = [];
   const sleeps = [];
@@ -117,6 +126,17 @@ test('runs the persistent dispatcher only inside the prewarm window', () => {
   assert.equal(idleDelayMs(Date.parse('2026-10-19T06:57:00+13:00') - Date.parse('2026-10-19T06:56:50+13:00')), 10_000);
 });
 
+test('requires the fixed 06:57 prewarm instant for an RTC-woken job', () => {
+  const job = { ...validJob(), prepareAt: '2026-10-19T06:56:00+13:00' };
+  assert.throws(() => validateBookingJob(job), /prepareAt.*three minutes/i);
+});
+
+test('does not keep a dispatcher alive before the exact 06:55 prewarm trigger', () => {
+  const job = { ...validJob(), prepareAt: '2026-10-19T06:57:00+13:00' };
+  assert.equal(prewarmDispatchDecision(job, Date.parse('2026-10-19T06:54:59+13:00')).action, 'not_due');
+  assert.equal(prewarmDispatchDecision(job, Date.parse('2026-10-19T06:55:00+13:00')).action, 'wait');
+});
+
 test('builds a persistent Aqua dispatcher without KeepAlive loops', () => {
   const plist = buildPersistentDispatcherPlist({
     label: 'com.hermes.hello-club.dispatcher',
@@ -125,6 +145,7 @@ test('builds a persistent Aqua dispatcher without KeepAlive loops', () => {
     jobPath: '/Users/yufei/project/state/jobs/active.json',
   });
   assert.match(plist, /<key>StartInterval<\/key>\s*<integer>900<\/integer>/);
+  assert.match(plist, /<key>StartCalendarInterval<\/key>\s*<dict><key>Hour<\/key><integer>6<\/integer><key>Minute<\/key><integer>55<\/integer><\/dict>/);
   assert.match(plist, /<key>RunAtLoad<\/key>\s*<true\/>/);
   assert.match(plist, /<key>LimitLoadToSessionType<\/key>\s*<string>Aqua<\/string>/);
   assert.match(plist, /launchd-dispatcher\.mjs/);
@@ -143,4 +164,15 @@ test('builds a logged-in-user launch agent without KeepAlive', () => {
   assert.match(plist, /<key>KeepAlive<\/key>\s*<false\/>/);
   assert.match(plist, /launchd-runner\.mjs/);
   assert.doesNotMatch(plist, /password|cookie|token|card/i);
+});
+
+test('derives a single safe RTC wake before the exact prewarm trigger', () => {
+  const job = { ...validJob(), prepareAt: '2026-10-19T06:57:00+13:00' };
+  const plan = buildRtcWakePlan(job);
+  assert.deepEqual(plan, {
+    wakeAt: '2026-10-18T17:53:00.000Z',
+    pmsetDate: '10/19/26 06:53:00',
+    wakeKey: '2026-10-19T06:53:00',
+    command: ['sudo', '/usr/bin/pmset', 'schedule', 'wake', '10/19/26 06:53:00', 'com.hermes.hello-club'],
+  });
 });

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chooseCourt,
+  orderedAvailableCourts,
   evaluatePaymentPage,
   verifyRemoteOutcome,
 } from '../src/booking-policy.mjs';
@@ -44,6 +45,16 @@ test('rejects a partial interval even when one half-hour is free', () => {
     ], target),
     /No complete interval available/,
   );
+});
+
+test('keeps every available court in preference order for rendered-slot preflight', () => {
+  const result = orderedAvailableCourts([
+    availability('Court 4', [slot('22:00', '22:30'), slot('22:30', '23:00')]),
+    availability('Court 5', [slot('22:00', '22:30'), slot('22:30', '23:00', false)]),
+    availability('Court 6', [slot('22:00', '22:30'), slot('22:30', '23:00')]),
+  ], target);
+
+  assert.deepEqual(result, ['Court 4', 'Court 6']);
 });
 
 test('payment page uses CANCEL to leave a verified unpaid hold', () => {

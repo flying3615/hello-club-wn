@@ -1,0 +1,2 @@
+# Allow only the no-argument, root-owned RTC wake helper.
+yufei ALL=(root) NOPASSWD: /usr/local/libexec/hello-club-arm-rtc-wake ""

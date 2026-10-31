@@ -1,5 +1,6 @@
 import {
   connectExistingChrome,
+  isPagePreloading,
   openRawBookingPage,
 } from './session.mjs';
 import { DEFAULT_BASE_URL, DEFAULT_CDP_ENDPOINT, bookingUrl } from './config.mjs';
@@ -12,6 +13,46 @@ import {
 } from './opening-window.mjs';
 
 const TARGET_ZONE = 'Pacific/Auckland';
+const COMPLETE_GRID_SLOT_COUNT = 48 * 6;
+
+export function selectCompleteTargetGridIndex(candidates) {
+  const matches = (candidates || []).filter((candidate) => (
+    candidate?.visible
+    && candidate.containsVenue
+    && candidate.containsTargetDate
+    && candidate.courtCount === 6
+    && candidate.slotCount === COMPLETE_GRID_SLOT_COUNT
+  ));
+  if (matches.length !== 1) throw new Error('Expected exactly one complete target calendar grid');
+  return matches[0].index;
+}
+
+export async function locateTargetCalendarGridRoot(page, date) {
+  const label = formatTargetDateLabel(date);
+  const grids = page.locator('.BookingGrid');
+  const candidates = await grids.evaluateAll((elements, targetDateLabel) => elements.map((grid, index) => {
+    const card = grid.closest('.Card');
+    const scope = card || grid;
+    const gridRect = grid.getBoundingClientRect();
+    const gridStyle = getComputedStyle(grid);
+    const text = String(scope.innerText || '');
+    const courts = [...scope.querySelectorAll('.BookingGridArea-name')]
+      .map((node) => node.textContent?.trim())
+      .filter((name) => /^Court [1-6]$/.test(name));
+    return {
+      index,
+      visible: gridStyle.display !== 'none' && gridStyle.visibility !== 'hidden' && gridRect.width > 0 && gridRect.height > 0,
+      containsVenue: text.includes('Wellington North Badminton Stadium'),
+      containsTargetDate: text.includes(targetDateLabel),
+      courtCount: new Set(courts).size,
+      slotCount: grid.querySelectorAll('.BookingGrid-column booking-grid-slot').length,
+    };
+  }), label);
+  const gridIndex = selectCompleteTargetGridIndex(candidates);
+  const gridRoot = grids.nth(gridIndex).locator('xpath=ancestor-or-self::*[contains(concat(" ", normalize-space(@class), " "), " Card ")][1]');
+  if (await gridRoot.count() !== 1) throw new Error('Complete target grid is not contained by one calendar card');
+  return gridRoot;
+}
 
 export function formatTargetDateLabel(date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`Invalid booking date: ${date}`);
@@ -27,7 +68,8 @@ export function formatTargetDateLabel(date) {
 }
 
 export function isTargetPageReady(bodyText, date) {
-  const text = String(bodyText || '');
+  const text = String(bodyText || '').trim();
+  if (/^Loading(?:\.\.\.|…)/.test(text)) return false;
   const required = [
     'Wellington North Badminton Stadium',
     formatTargetDateLabel(date),
@@ -44,10 +86,22 @@ export function isTargetPageReady(bodyText, date) {
 export async function isTargetGridReady(page, date) {
   const label = formatTargetDateLabel(date);
   return page.evaluate((targetDateLabel) => {
+    const bodyText = String(document.body?.innerText || '').trim();
+    if (/^Loading(?:\.\.\.|…)/.test(bodyText)) return false;
+    const preloader = document.querySelector('#Preloader');
+    if (preloader) {
+      const style = getComputedStyle(preloader);
+      if (style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0) return false;
+    }
     const grid = [...document.querySelectorAll('.BookingGrid')].find((candidate) => (
       candidate.querySelectorAll('.BookingGrid-column booking-grid-slot').length >= 48 * 6
     ));
     if (!grid) return false;
+    const host = grid.closest('booking-grid');
+    const ctrl = host && window.angular ? window.angular.element(host).scope?.()?.$ctrl : null;
+    if (!ctrl || ctrl.hasLoadedData !== true) return false;
+    if (Array.isArray(ctrl.loadOps) && ctrl.loadOps.length > 0) return false;
+    if (document.querySelectorAll('booking-grid-slot.ng-animate').length > 0) return false;
     const card = grid.closest('.Card');
     const text = String(card?.innerText || '');
     const courts = [...(card || grid).querySelectorAll('.BookingGridArea-name')]
@@ -98,6 +152,7 @@ export async function watchOpening({
   const poll = await pollUntilReady({
     isReady: async () => isTargetGridReady(page, date),
     refresh: async () => {
+      if (await isPagePreloading(page)) return;
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
       await page.locator('body').waitFor({ state: 'visible', timeout: 30_000 });
     },
@@ -108,9 +163,7 @@ export async function watchOpening({
   });
 
   if (!poll.ready) return { page, poll, targetUrl, gridRoot: null, grid: null, selection: null };
-  const gridRoot = page.locator('.Card').filter({ hasText: formatTargetDateLabel(date) })
-    .filter({ has: page.locator('.BookingGrid') });
-  if (await gridRoot.count() !== 1) throw new Error('Expected exactly one target calendar card');
+  const gridRoot = await locateTargetCalendarGridRoot(page, date);
   const grid = await scanBookingGrid(gridRoot);
   let selection = null;
   if (start && end) {

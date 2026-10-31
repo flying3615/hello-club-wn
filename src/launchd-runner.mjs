@@ -1,12 +1,14 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { reconcileIntentFence } from './intent-fence.mjs';
+import { readRemoteBookings } from './remote-bookings.mjs';
+import { bookingIntentKey } from './booking-intent.mjs';
 import { connectExistingChrome, openBookingPage } from './session.mjs';
 import { scanBookingGrid } from './booking-grid.mjs';
-import { chooseCourt } from './booking-policy.mjs';
+import { chooseCourt, orderedAvailableCourts } from './booking-policy.mjs';
 import { watchOpening } from './opening-watch.mjs';
-import { submitBooking } from './booking-submit.mjs';
+import { preflightRenderedBookingSlots, submitBooking } from './booking-submit.mjs';
 import { verifiedBookingRecord } from './booking-execution.mjs';
 import { DEFAULT_CDP_ENDPOINT, validateBookingJob, validateLoopbackCdpEndpoint } from './launchd-job.mjs';
 
@@ -54,15 +56,7 @@ async function appendBooking(record) {
 }
 
 export function bookingFingerprint(job) {
-  const value = JSON.stringify({
-    date: job.date,
-    start: job.start,
-    end: job.end,
-    bookingType: job.bookingType,
-    participants: [...job.participants].map((name) => name.trim().toLowerCase()).sort(),
-    courts: [...job.courtOrder].sort(),
-  });
-  return createHash('sha256').update(value).digest('hex');
+  return bookingIntentKey(job);
 }
 
 async function acquireLock(job) {
@@ -108,6 +102,30 @@ function summarizeSelection(selection) {
   return { status: 'candidate', court: selection.court, checked: selection.checked };
 }
 
+export async function selectActionableCourt({
+  scope,
+  grid,
+  job,
+  preflight = preflightRenderedBookingSlots,
+}) {
+  const candidates = orderedAvailableCourts(grid, { start: job.start, end: job.end }, job.courtOrder);
+  const checked = [];
+  for (const court of candidates) {
+    checked.push(court);
+    try {
+      await preflight({ scope, grid, court, start: job.start, end: job.end });
+      return { court, checked };
+    } catch (error) {
+      if (error?.code !== 'slot_not_actionable') throw error;
+    }
+  }
+  throw new Error(`No rendered-actionable permitted court for ${job.start}-${job.end}; checked ${checked.join(', ') || 'none'}`);
+}
+
+export function assertDeadline(deadlineMs, currentMs = Date.now()) {
+  if (!Number.isFinite(deadlineMs) || currentMs > deadlineMs) throw new Error('latest start deadline has passed');
+}
+
 export function boundedTimeoutMs(deadlineMs, currentMs) {
   return Math.min(900_000, Math.max(1_000, deadlineMs - currentMs));
 }
@@ -130,6 +148,7 @@ export async function waitForOpenSelection({
     timeoutMs: boundedTimeoutMs(Date.parse(job.latestStart), now()),
     now,
   });
+  assertDeadline(Date.parse(job.latestStart), now());
   if (!result.poll?.ready || !result.grid || !result.selection || result.selection.error) {
     throw new Error('Opening grid was not ready with a complete permitted interval');
   }
@@ -173,14 +192,39 @@ export async function runLaunchdJob({ jobFile, mode, cdpEndpoint = DEFAULT_CDP_E
 
     if (mode === 'execute') {
       releaseLock = await acquireLock(job);
+      const reconciliation = await reconcileIntentFence({ job, read: readRemoteBookings });
+      if (reconciliation.state === 'blocked') {
+        throw new Error('Booking intent requires authenticated reconciliation before any new submission');
+      }
+      if (reconciliation.state === 'verified') {
+        const verifiedAt = new Date().toISOString();
+        if (!['free', 'unpaid_hold'].includes(reconciliation.record.paymentStatus)) {
+          throw new Error('Reconciled booking has an unsupported payment state');
+        }
+        await appendBooking(verifiedBookingRecord({
+          job, court: reconciliation.record.court, paymentStatus: reconciliation.record.paymentStatus, verifiedAt,
+        }));
+        return {
+          status: 'reconciled_verified', mode, jobId: job.id, timestamp: startedAt, startedAt,
+          finishedAt: verifiedAt, selection: { status: 'reconciled', court: reconciliation.record.court, checked: [reconciliation.record.court] }, paymentStatus: reconciliation.record.paymentStatus,
+        };
+      }
       const opening = await waitForOpenSelection({ context, job, now });
-      const outcome = await submitBooking({ context, page: opening.page, job, grid: opening.grid, gridRoot: opening.gridRoot, court: opening.selection.court });
+      assertDeadline(deadline, now());
+      const selection = await selectActionableCourt({
+        scope: opening.gridRoot || opening.page, grid: opening.grid, job,
+      });
+      assertDeadline(deadline, now());
+      const outcome = await submitBooking({
+        context, page: opening.page, job, grid: opening.grid, gridRoot: opening.gridRoot, court: selection.court,
+        assertDeadline: () => assertDeadline(deadline, now()),
+      });
       const verifiedAt = new Date().toISOString();
-      await appendBooking(verifiedBookingRecord({ job, court: opening.selection.court, paymentStatus: outcome.paymentStatus, verifiedAt }));
+      await appendBooking(verifiedBookingRecord({ job, court: selection.court, paymentStatus: outcome.paymentStatus, verifiedAt }));
       return {
         status: 'booking_verified', mode, jobId: job.id, timestamp: startedAt, startedAt,
         firstGridAt: new Date().toISOString(), finishedAt: verifiedAt,
-        selection: summarizeSelection(opening.selection), paymentStatus: outcome.paymentStatus,
+        selection: summarizeSelection(selection), paymentStatus: outcome.paymentStatus,
       };
     }
 

@@ -54,7 +54,10 @@ export function validateBookingJob(job, { mode = 'watch' } = {}) {
   assert(openAt === expectedOpenAt, 'openAt must be 07:00 Pacific/Auckland on the target weekday seven days earlier');
   const prepareAt = job.prepareAt === undefined ? undefined : parseInstant(job.prepareAt, 'prepareAt');
   const latestStart = parseInstant(job.latestStart, 'latestStart');
-  if (prepareAt !== undefined) assert(prepareAt <= openAt, 'prepareAt must not be later than openAt');
+  if (prepareAt !== undefined) {
+    assert(prepareAt <= openAt, 'prepareAt must not be later than openAt');
+    assert(prepareAt === openAt - 3 * 60_000, 'prepareAt must be exactly three minutes before openAt for RTC prewarm');
+  }
   assert(latestStart >= openAt, 'latestStart must not be earlier than openAt');
   assert(job.bookingType === 'Stadium Pass - Singles', 'bookingType must be Stadium Pass - Singles');
   assert(Array.isArray(job.participants) && job.participants.length === 2, 'Singles booking requires exactly two participants');

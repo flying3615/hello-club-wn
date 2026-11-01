@@ -30,7 +30,7 @@ export function publicJob(job) {
 
 export function publicRun(run) {
   const safe = pick(run, [
-    'status', 'mode', 'jobId', 'timestamp', 'startedAt', 'firstGridAt', 'finishedAt', 'attempts', 'selection',
+    'status', 'mode', 'jobId', 'timestamp', 'startedAt', 'firstGridAt', 'finishedAt', 'attempts', 'selection', 'paymentStatus',
   ]);
   if (!safe?.status || !safe.timestamp) return null;
   if (typeof run.errorCode === 'string') safe.errorCode = safeErrorCode(run.errorCode);

@@ -80,6 +80,12 @@
     .failure-action { margin-top:8px; font-size:13px; font-weight:750; color:var(--red); }
     .failure-meta { display:flex; flex-wrap:wrap; gap:5px 14px; margin-top:9px; color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
     .failure-meta .mono { font-size:11px; }
+    .success-banner { display:flex; gap:12px; align-items:flex-start; margin:14px 0 0; padding:14px 16px; border:1px solid color-mix(in srgb, var(--green) 45%, var(--line)); border-left:5px solid var(--green); border-radius:9px; background:var(--green-soft); }
+    .success-banner[hidden] { display:none; }
+    .success-symbol { width:28px; height:28px; flex:0 0 auto; display:grid; place-items:center; border-radius:50%; background:var(--green); color:var(--card); font-weight:800; font-size:15px; }
+    .success-title { font-size:15px; font-weight:800; letter-spacing:-.01em; color:var(--ink); }
+    .success-reason { margin-top:4px; font-size:14px; font-weight:650; line-height:1.4; color:var(--ink); }
+    .success-meta { display:flex; flex-wrap:wrap; gap:5px 14px; margin-top:6px; color:var(--muted); font-size:11px; }
     details.secondary { grid-column:1 / -1; border:1px solid var(--line); border-radius:10px; background:var(--card); overflow:hidden; box-shadow:var(--shadow); }
     details.secondary summary { cursor:pointer; padding:14px 18px; font-size:14px; font-weight:700; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:12px; }
     details.secondary summary::-webkit-details-marker { display:none; }
@@ -102,6 +108,7 @@
     </header>
     <div id="error" class="message"></div>
     <div id="system-status" class="statusbar" aria-label="System status"></div>
+    <div id="success" class="success-banner" role="status" aria-live="polite" hidden></div>
     <div id="failure" class="failure-banner" role="status" aria-live="polite" hidden></div>
 
     <div class="grid">
@@ -167,6 +174,20 @@
         statusItem('运行器', runner.state === 'running' ? '运行中' : '空闲', runner.state === 'running' ? 'good' : 'warn'),
       ].join('');
     }
+    function renderSuccess(success) {
+      const el = document.querySelector('#success');
+      if (!success) { el.hidden = true; el.innerHTML = ''; return; }
+      const job = success.job || {};
+      const windowText = job.date ? `${jobDateLabel(job.date)} ${job.start || ''}–${job.end || ''}` : '预约';
+      const meta = [
+        '已从 Hello Club 远端核验',
+        success.court ? `场地 ${success.court}` : '',
+        success.paymentStatus ? `支付 ${statusLabel(success.paymentStatus)}` : '',
+        success.verifiedAt ? `核验于 ${dateTime(success.verifiedAt)}` : '',
+      ].filter(Boolean).map((item) => `<span>${esc(item)}</span>`).join('');
+      el.hidden = false;
+      el.innerHTML = `<div class="success-symbol" aria-hidden="true">✓</div><div class="failure-body"><div class="success-title">上次预约成功</div><div class="success-reason">${esc(windowText)}</div><div class="success-meta">${meta}</div></div>`;
+    }
     function renderFailure(failure) {
       const el = document.querySelector('#failure');
       if (!failure) { el.hidden = true; el.innerHTML = ''; return; }
@@ -226,7 +247,7 @@
         const response = await fetch('/api/status', { cache:'no-store' });
         if (!response.ok) throw new Error('Status endpoint returned an error');
         const status = await response.json();
-        renderProcesses(status.processes); renderFailure(status.lastFailure); renderJob(status.activeJob); renderBookings(status.bookings, status.remoteSync); renderActivity(status.activity);
+        renderProcesses(status.processes); renderSuccess(status.lastSuccess); renderFailure(status.lastFailure); renderJob(status.activeJob); renderBookings(status.bookings, status.remoteSync); renderActivity(status.activity);
         document.querySelector('#safety').textContent = status.safety.message;
         document.querySelector('#updated').textContent = `更新于 ${dateTime(status.generatedAt)}`;
         error.classList.remove('show');

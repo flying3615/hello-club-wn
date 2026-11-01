@@ -120,7 +120,7 @@ async function lockState() {
 
 export async function buildStatus() {
   const [
-    activeJob, dispatcher, cdp, chrome, locks, runs, dispatches, remote,
+    activeJob, dispatcher, cdp, chrome, locks, runs, dispatches,
   ] = await Promise.all([
     readJsonFile(path.join(STATE_DIR, 'jobs', 'active.json'), publicJob),
     dispatcherHealth(),
@@ -129,16 +129,24 @@ export async function buildStatus() {
     lockState(),
     readJsonLines(path.join(STATE_DIR, 'launchd', 'runs'), publicRun, { limit: 40 }),
     readJsonLines(path.join(STATE_DIR, 'launchd', 'dispatch-history'), publicDispatch, { limit: 40 }),
-    remoteBookingCache.get(),
   ]);
   const marker = activeJob
     ? await readJsonFile(path.join(STATE_DIR, 'launchd', 'dispatch', `${activeJob.id}.json`), publicDispatch)
     : null;
   const lastRun = runs[0] || null;
-  const lastJob = lastRun?.status === 'failed'
-    ? (lastRun.jobId ? await readArchivedJob(lastRun.jobId) : await readLatestArchivedJob('failed'))
-    : null;
+  const lastJob = lastRun?.jobId
+    ? await readArchivedJob(lastRun.jobId)
+    : (lastRun?.status === 'failed' ? await readLatestArchivedJob('failed') : null);
   const lastFailure = lastRun?.status === 'failed' ? explainRunFailure(lastRun, lastJob) : null;
+  const successfulRun = lastRun && ['booking_verified', 'reconciled_verified'].includes(lastRun.status) ? lastRun : null;
+  const successAt = successfulRun ? Date.parse(successfulRun.finishedAt || successfulRun.timestamp) : null;
+  const lastSuccess = successfulRun && lastJob ? {
+    job: lastJob,
+    court: successfulRun.selection?.court || null,
+    paymentStatus: successfulRun.paymentStatus || null,
+    verifiedAt: successfulRun.finishedAt || successfulRun.timestamp,
+  } : null;
+  const remote = await remoteBookingCache.get({ freshAfter: Number.isFinite(successAt) ? successAt : null });
   const now = new Date().toISOString();
   const groupedBookings = partitionRemoteBookings(remote.bookings, now);
   const chromeReady = chrome === null ? cdp.reachable : chrome || cdp.reachable;
@@ -156,6 +164,7 @@ export async function buildStatus() {
     activeJob: activeJob ? { ...activeJob, dispatch: marker } : null,
     lastRun,
     lastFailure,
+    lastSuccess,
     activity: presentActivity({ dispatches: marker ? [marker, ...dispatches] : dispatches, runs }),
     bookings: {
       upcoming: groupedBookings.upcoming.map(publicBooking).filter(Boolean),

@@ -25,7 +25,10 @@ test('execute path waits for an opening watcher result before selecting a court'
 
 test('execute path refuses to select before an opening grid is ready', async () => {
   await assert.rejects(
-    waitForOpenSelection({ context: {}, job, watch: async () => ({ poll: { ready: false }, grid: null, selection: null }) }),
+    waitForOpenSelection({
+      context: {}, job, now: () => Date.parse(job.latestStart) - 60_000,
+      watch: async () => ({ poll: { ready: false }, grid: null, selection: null }),
+    }),
     /opening grid/i,
   );
 });

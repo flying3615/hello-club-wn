@@ -97,9 +97,12 @@ export function createRemoteBookingCache({ read, now = () => Date.now(), ttlMs =
   let syncedAt = null;
   let inFlight = null;
   return {
-    async get() {
+    async get({ force = false, freshAfter = null } = {}) {
       const current = now();
-      if (syncedAt !== null && current - syncedAt < ttlMs) return { bookings, syncedAt, state: 'fresh' };
+      const requiresNewer = Number.isFinite(freshAfter) && (syncedAt === null || syncedAt < freshAfter);
+      if (!force && !requiresNewer && syncedAt !== null && current - syncedAt < ttlMs) {
+        return { bookings, syncedAt, state: 'fresh' };
+      }
       if (!inFlight) {
         inFlight = (async () => {
           try {

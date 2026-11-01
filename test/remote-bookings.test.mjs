@@ -77,3 +77,26 @@ test('keeps the last successful remote snapshot when the next sync fails', async
   assert.deepEqual(await cache.get(), { bookings: [{ id: 'remote-booking-1' }], syncedAt: 0, state: 'stale' });
   assert.equal(calls, 2);
 });
+
+test('refreshes after a booking succeeds even before the cache TTL expires', async () => {
+  let now = 1_000;
+  let calls = 0;
+  const cache = createRemoteBookingCache({
+    ttlMs: 43_200_000,
+    now: () => now,
+    read: async () => {
+      calls += 1;
+      return [{ id: `booking-${calls}` }];
+    },
+  });
+  assert.deepEqual(await cache.get(), { bookings: [{ id: 'booking-1' }], syncedAt: 1_000, state: 'fresh' });
+  now = 2_000;
+  assert.deepEqual(await cache.get({ freshAfter: 1_500 }), {
+    bookings: [{ id: 'booking-2' }], syncedAt: 2_000, state: 'fresh',
+  });
+  now = 3_000;
+  assert.deepEqual(await cache.get({ freshAfter: 1_500 }), {
+    bookings: [{ id: 'booking-2' }], syncedAt: 2_000, state: 'fresh',
+  });
+  assert.equal(calls, 2);
+});

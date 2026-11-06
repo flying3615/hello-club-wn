@@ -197,13 +197,18 @@ export function createPanelServer({ port = DEFAULT_PORT } = {}) {
         return;
       }
       if (url.pathname === '/' || url.pathname === '/index.html') {
+        const html = await fs.readFile(INDEX_FILE);
         response.writeHead(200, { 'Content-Type': contentType(INDEX_FILE), 'Cache-Control': 'no-store' });
-        response.end(await fs.readFile(INDEX_FILE));
+        response.end(html);
         return;
       }
       response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       response.end('Not found');
     } catch {
+      if (response.headersSent) {
+        if (!response.writableEnded) response.destroy();
+        return;
+      }
       response.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       response.end(JSON.stringify({ error: 'Status unavailable. Try refreshing.' }));
     }

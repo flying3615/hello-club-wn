@@ -176,7 +176,9 @@ async function chooseLinkedMember(modal, name) {
   const selected = await modal.evaluate((root, target) => {
     const norm = (value) => (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
     const group = [...root.querySelectorAll('.Group')].find((item) => norm(item.querySelector('.Label')?.textContent) === 'linked members');
-    const matches = group ? [...group.querySelectorAll('icon-label')].filter((item) => norm(item.textContent) === norm(target)) : [];
+    const matches = group ? [...group.querySelectorAll('icon-label')].filter((item) => (
+      norm(item.querySelector('.IconLabel-text')?.textContent) === norm(target)
+    )) : [];
     if (matches.length !== 1) return false;
     matches[0].click();
     return true;

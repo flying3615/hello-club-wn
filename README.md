@@ -86,7 +86,7 @@ npm run schedule:job -- \
 
 `--submit` defaults to `false`; only an explicit `--submit true` creates an executing job. Use `--courts` to override the court priority order and `--id` to choose a stable job ID.
 
-> **macOS launchd note:** launchd agents cannot read a checkout under `~/Documents` without Full Disk Access; the agent exits with `EX_CONFIG` 78 and the log shows `Operation not permitted`. Run the dispatcher from a non-protected runtime copy instead. On this machine the runtime copy lives under `~/.hermes/profiles/<profile>/projects/hello-club-playwright`; after editing the git checkout, sync `src`, `templates`, `public`, `package.json`, and `node_modules` there before scheduling. Do not create the active job in a checkout that launchd cannot read.
+> **macOS launchd note:** launchd agents cannot read a checkout under `~/Documents` without Full Disk Access; the agent exits with `EX_CONFIG` 78 and the log shows `Operation not permitted`. Run the dispatcher from a non-protected runtime copy instead. On this machine the stable runtime is `~/hello-club-playwright`, independent of the Hermes app; its dedicated Chrome profile is `~/hello-club-playwright/state/chrome-cdp-profile`. After editing the git checkout, sync `src`, `templates`, `public`, `package.json`, and `node_modules` there before scheduling. Do not keep runtime state under `~/.hermes`, because Hermes updates can remove it. Do not create the active job in a checkout that launchd cannot read.
 
 Create or regenerate the persistent dispatcher plist:
 
@@ -104,7 +104,7 @@ launchctl print gui/$(id -u)/com.hermes.hello-club.dispatcher
 
 ### One-time RTC helper installation
 
-From the **project root** (`hello-club-playwright`), run the following reviewed installation once in a normal macOS Terminal. `pmset` requires root authority; the installed helper accepts **no arguments**, reads only `state/wake/rtc-wake.txt` from its invocation working directory (the project root, set by `npm run schedule:job`), and can invoke only `/usr/bin/pmset schedule wake`. Reinstall the helper after updating this template.
+From the **runtime root** (`~/hello-club-playwright`) or the git checkout, run the following reviewed installation once in a normal macOS Terminal. `pmset` requires root authority; the installed helper accepts **no arguments**, reads only `state/wake/rtc-wake.txt` from its invocation working directory (the runtime root, set by `npm run schedule:job`), and can invoke only `/usr/bin/pmset schedule wake`. Reinstall the helper after updating this template or moving the runtime.
 
 ```bash
 sudo install -d -o root -g wheel -m 755 /usr/local/libexec
@@ -131,11 +131,13 @@ npm run run:launchd -- \
 
 ## Local control panel
 
-Start the read-only local panel:
+Start the read-only local panel manually:
 
 ```bash
 npm run panel
 ```
+
+On this machine it is also installed as a persistent `KeepAlive` LaunchAgent at `~/Library/LaunchAgents/com.hermes.hello-club.panel.plist`, running from `~/hello-club-playwright`, so it survives terminal and session exits.
 
 Open `http://127.0.0.1:8787`. It shows safe status information for the dispatcher, Chrome/CDP reachability, active runner locks, any active job, recent activity, and only authenticated-remote verified bookings. When the most recent runner attempt failed, a separate notice shows the job date/time, the reason, whether a booking was created, and the next safe action; dispatcher health is reported independently from that failed attempt. The browser UI refreshes hourly; its remote booking cache is refreshed at most every 12 hours.
 

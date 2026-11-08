@@ -37,15 +37,31 @@ export function publicRun(run) {
   if (safe.selection && typeof safe.selection === 'object') {
     safe.selection = pick(safe.selection, ['status', 'court', 'checked']);
   }
-  if (run.adjacent && typeof run.adjacent === 'object') {
-    safe.adjacent = {
-      window: pick(run.adjacent.window, ['start', 'end']),
-      runs: Array.isArray(run.adjacent.runs)
-        ? run.adjacent.runs.slice(0, 30).map((item) => pick(item, ['court', 'start', 'end'])).filter((item) => item?.court && item.start && item.end)
-        : [],
-    };
-    if (typeof run.adjacent.error === 'string') safe.adjacent.error = safeErrorCode(run.adjacent.error);
-  }
+  if (run.adjacent && typeof run.adjacent === 'object') safe.adjacent = publicAdjacent(run.adjacent);
+  return safe;
+}
+
+export function publicAdjacent(adjacent) {
+  if (!adjacent || typeof adjacent !== 'object') return null;
+  const safe = {
+    window: pick(adjacent.window, ['start', 'end']),
+    runs: Array.isArray(adjacent.runs)
+      ? adjacent.runs.slice(0, 30).map((item) => pick(item, ['court', 'start', 'end'])).filter((item) => item?.court && item.start && item.end)
+      : [],
+  };
+  if (typeof adjacent.error === 'string') safe.error = safeErrorCode(adjacent.error);
+  return safe;
+}
+
+export function publicWeekendReport(report) {
+  const safe = pick(report, ['status', 'targetDate', 'court', 'paymentStatus', 'remoteBookingId', 'error', 'verifiedAt', 'adjacent']);
+  if (!safe?.status || !['success', 'failed'].includes(safe.status) || !/^\d{4}-\d{2}-\d{2}$/.test(safe.targetDate || '')) return null;
+  if (safe.court !== undefined && !/^Court [1-6]$/.test(safe.court)) delete safe.court;
+  if (safe.paymentStatus !== undefined && !['free', 'unpaid_hold', 'paid'].includes(safe.paymentStatus)) delete safe.paymentStatus;
+  if (typeof safe.remoteBookingId === 'string') safe.remoteBookingId = safe.remoteBookingId.slice(0, 100);
+  else delete safe.remoteBookingId;
+  if (typeof safe.error === 'string') safe.error = safeErrorCode(safe.error);
+  if (safe.adjacent) safe.adjacent = publicAdjacent(safe.adjacent);
   return safe;
 }
 

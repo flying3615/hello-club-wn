@@ -15,6 +15,7 @@ test('prioritizes active jobs and upcoming bookings over diagnostics', async () 
   const html = await fs.readFile(panel, 'utf8');
   assert.match(html, /id="system-status"/);
   assert.match(html, /<h2>当前任务<\/h2>/);
+  assert.match(html, /<h2>周期任务<\/h2>/);
   assert.match(html, /class="job-summary"/);
   assert.match(html, /function renderJob\(job\)/);
   assert.match(html, /id="failure" class="failure-banner"/);

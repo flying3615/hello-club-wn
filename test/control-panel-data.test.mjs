@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  explainRunFailure, parseJsonLines, presentActivity, publicBooking, publicDispatch, publicJob, publicRun, readJsonLines, safeErrorCode,
+  explainRunFailure, parseJsonLines, presentActivity, publicBooking, publicDispatch, publicJob, publicRun, publicWeekendReport, readJsonLines, safeErrorCode,
 } from '../src/control-panel-data.mjs';
 import { REMOTE_BOOKING_SYNC_TTL_MS } from '../src/control-panel-server.mjs';
 
@@ -117,4 +117,19 @@ test('passes sanitized adjacent availability into the failure explanation', () =
   const failure = explainRunFailure(run, { id: 'weekend-2026-11-21-0800', date: '2026-11-21', start: '08:00', end: '09:30' });
   assert.deepEqual(failure.adjacent, [{ court: 'Court 1', start: '06:30', end: '08:00' }]);
   assert.deepEqual(failure.adjacentWindow, { start: '06:00', end: '12:00' });
+});
+
+
+test('uses only safe fields from the weekend report', () => {
+  const report = publicWeekendReport({
+    status: 'failed', targetDate: '2026-11-21', court: 'Court 1', error: 'Opening grid was not ready with a complete permitted interval',
+    adjacent: { window: { start: '06:00', end: '12:00' }, runs: [{ court: 'Court 1', start: '06:30', end: '08:00' }] },
+    job: { participants: ['private'] }, archived: '/private/path', secret: 'x',
+  });
+  assert.deepEqual(report, {
+    status: 'failed', targetDate: '2026-11-21', court: 'Court 1',
+    error: 'Opening grid was not ready with a complete permitted interval',
+    adjacent: { window: { start: '06:00', end: '12:00' }, runs: [{ court: 'Court 1', start: '06:30', end: '08:00' }] },
+  });
+  assert.equal(publicWeekendReport({ status: 'failed', targetDate: 'not-a-date' }), null);
 });

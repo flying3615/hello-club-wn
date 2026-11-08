@@ -5,14 +5,16 @@ import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { promisify } from 'node:util';
 import {
-  explainRunFailure, presentActivity, publicBooking, publicDispatch, publicJob, publicRun, readJsonLines,
+  explainRunFailure, presentActivity, publicBooking, publicDispatch, publicJob, publicRun, publicWeekendReport, readJsonLines,
 } from './control-panel-data.mjs';
 import { createRemoteBookingCache, partitionRemoteBookings, readRemoteBookings } from './remote-bookings.mjs';
+import { nextWeekendRun } from './weekend-schedule.mjs';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DIR = path.resolve(new URL('..', import.meta.url).pathname);
 const STATE_DIR = path.join(PROJECT_DIR, 'state');
-const LABEL = 'com.hermes.hello-club.dispatcher';
+const DISPATCHER_LABEL = 'com.hermes.hello-club.dispatcher';
+const WEEKEND_LABEL = 'com.hermes.hello-club.weekend';
 const INDEX_FILE = path.join(PROJECT_DIR, 'public', 'control-panel.html');
 const LOOPBACK_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8787;
@@ -71,21 +73,45 @@ function field(text, label) {
   return match?.[1]?.trim() || null;
 }
 
-async function dispatcherHealth() {
+async function launchAgentHealth(label) {
   try {
-    const { stdout } = await execFileAsync('/bin/launchctl', ['print', `gui/${process.getuid()}/${LABEL}`], { timeout: 3_000 });
-    const state = field(stdout, 'state') || 'unknown';
+    const { stdout } = await execFileAsync('/bin/launchctl', ['print', `gui/${process.getuid()}/${label}`], { timeout: 3_000 });
+    const rawState = field(stdout, 'state') || 'unknown';
+    const state = rawState === 'spawn scheduled' ? 'starting' : ['running', 'not running'].includes(rawState) ? rawState : 'unknown';
     const runCount = Number(field(stdout, 'runs'));
-    const exitCode = Number(field(stdout, 'last exit code'));
+    const exitCode = Number.parseInt(field(stdout, 'last exit code') || '', 10);
     return {
       configured: true,
-      state: ['running', 'not running'].includes(state) ? state : 'unknown',
+      state,
       runs: Number.isFinite(runCount) ? runCount : null,
       lastExitCode: Number.isFinite(exitCode) ? exitCode : null,
     };
   } catch {
     return { configured: false, state: 'unavailable', runs: null, lastExitCode: null };
   }
+}
+
+async function dispatcherHealth() {
+  return launchAgentHealth(DISPATCHER_LABEL);
+}
+
+async function readLatestWeekendReport() {
+  const directory = path.join(STATE_DIR, 'reports');
+  try {
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    const files = entries
+      .filter((entry) => entry.isFile() && /^weekend-\d{4}-\d{2}-\d{2}\.json$/.test(entry.name))
+      .map((entry) => entry.name)
+      .sort()
+      .reverse();
+    for (const file of files) {
+      const report = await readJsonFile(path.join(directory, file), publicWeekendReport);
+      if (report) return report;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 async function cdpHealth() {
@@ -119,8 +145,15 @@ async function lockState() {
 }
 
 export async function buildStatus() {
+  const nowDate = new Date();
+  let nextWeekend = null;
+  try {
+    nextWeekend = nextWeekendRun(nowDate);
+  } catch {
+    nextWeekend = null;
+  }
   const [
-    activeJob, dispatcher, cdp, chrome, locks, runs, dispatches,
+    activeJob, dispatcher, cdp, chrome, locks, runs, dispatches, weekend, weekendReport,
   ] = await Promise.all([
     readJsonFile(path.join(STATE_DIR, 'jobs', 'active.json'), publicJob),
     dispatcherHealth(),
@@ -129,6 +162,8 @@ export async function buildStatus() {
     lockState(),
     readJsonLines(path.join(STATE_DIR, 'launchd', 'runs'), publicRun, { limit: 40 }),
     readJsonLines(path.join(STATE_DIR, 'launchd', 'dispatch-history'), publicDispatch, { limit: 40 }),
+    launchAgentHealth(WEEKEND_LABEL),
+    readLatestWeekendReport(),
   ]);
   const marker = activeJob
     ? await readJsonFile(path.join(STATE_DIR, 'launchd', 'dispatch', `${activeJob.id}.json`), publicDispatch)
@@ -147,7 +182,7 @@ export async function buildStatus() {
     verifiedAt: successfulRun.finishedAt || successfulRun.timestamp,
   } : null;
   const remote = await remoteBookingCache.get({ freshAfter: Number.isFinite(successAt) ? successAt : null });
-  const now = new Date().toISOString();
+  const now = nowDate.toISOString();
   const groupedBookings = partitionRemoteBookings(remote.bookings, now);
   const chromeReady = chrome === null ? cdp.reachable : chrome || cdp.reachable;
   return {
@@ -165,6 +200,16 @@ export async function buildStatus() {
     lastRun,
     lastFailure,
     lastSuccess,
+    recurring: {
+      weekend: {
+        label: WEEKEND_LABEL,
+        ...weekend,
+        window: { start: '08:00', end: '09:30' },
+        weekdays: ['Saturday', 'Sunday'],
+        next: nextWeekend,
+        lastReport: weekendReport,
+      },
+    },
     activity: presentActivity({ dispatches: marker ? [marker, ...dispatches] : dispatches, runs }),
     bookings: {
       upcoming: groupedBookings.upcoming.map(publicBooking).filter(Boolean),

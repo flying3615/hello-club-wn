@@ -78,6 +78,8 @@
     .failure-reason { margin-top:4px; font-size:14px; font-weight:650; line-height:1.4; color:var(--ink); }
     .failure-detail { margin-top:4px; font-size:13px; line-height:1.5; color:var(--slate); }
     .failure-action { margin-top:8px; font-size:13px; font-weight:750; color:var(--red); }
+    .failure-adjacent { margin-top:8px; font-size:13px; line-height:1.5; color:var(--ink); }
+    .failure-adjacent b { color:var(--red); }
     .failure-meta { display:flex; flex-wrap:wrap; gap:5px 14px; margin-top:9px; color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
     .failure-meta .mono { font-size:11px; }
     .success-banner { display:flex; gap:12px; align-items:flex-start; margin:14px 0 0; padding:14px 16px; border:1px solid color-mix(in srgb, var(--green) 45%, var(--line)); border-left:5px solid var(--green); border-radius:9px; background:var(--green-soft); }
@@ -199,8 +201,12 @@
         failure.attemptedAt ? `<span>尝试于 ${dateTime(failure.attemptedAt)}</span>` : '',
         failure.code ? `<span class="mono">错误码 ${esc(failure.code)}</span>` : '',
       ].filter(Boolean).join('');
+      const adjacent = Array.isArray(failure.adjacent) ? failure.adjacent : [];
+      const adjacentHtml = adjacent.length
+        ? `<div class="failure-adjacent"><b>当天相邻可订：</b>${adjacent.map((item) => `${esc(item.court)} ${esc(item.start)}–${esc(item.end)}`).join('；')}</div>`
+        : failure.adjacentWindow ? '<div class="failure-adjacent">当天相邻时段暂无可订场次。</div>' : '';
       el.hidden = false;
-      el.innerHTML = `<div class="failure-symbol" aria-hidden="true">!</div><div class="failure-body"><div class="failure-title">${esc(failure.title)}</div><div class="failure-reason">${esc(failure.reason)}</div><div class="failure-detail">${esc(failure.detail)}</div><div class="failure-action">${esc(failure.action)}</div><div class="failure-meta">${meta}</div></div>`;
+      el.innerHTML = `<div class="failure-symbol" aria-hidden="true">!</div><div class="failure-body"><div class="failure-title">${esc(failure.title)}</div><div class="failure-reason">${esc(failure.reason)}</div><div class="failure-detail">${esc(failure.detail)}</div><div class="failure-action">${esc(failure.action)}</div>${adjacentHtml}<div class="failure-meta">${meta}</div></div>`;
     }
     function renderJob(job) {
       const container = document.querySelector('#active-job');

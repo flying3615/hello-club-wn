@@ -30,12 +30,21 @@ export function publicJob(job) {
 
 export function publicRun(run) {
   const safe = pick(run, [
-    'status', 'mode', 'jobId', 'timestamp', 'startedAt', 'firstGridAt', 'finishedAt', 'attempts', 'selection', 'paymentStatus',
+    'status', 'mode', 'jobId', 'timestamp', 'startedAt', 'firstGridAt', 'finishedAt', 'attempts', 'selection', 'paymentStatus', 'adjacent',
   ]);
   if (!safe?.status || !safe.timestamp) return null;
   if (typeof run.errorCode === 'string') safe.errorCode = safeErrorCode(run.errorCode);
   if (safe.selection && typeof safe.selection === 'object') {
     safe.selection = pick(safe.selection, ['status', 'court', 'checked']);
+  }
+  if (run.adjacent && typeof run.adjacent === 'object') {
+    safe.adjacent = {
+      window: pick(run.adjacent.window, ['start', 'end']),
+      runs: Array.isArray(run.adjacent.runs)
+        ? run.adjacent.runs.slice(0, 30).map((item) => pick(item, ['court', 'start', 'end'])).filter((item) => item?.court && item.start && item.end)
+        : [],
+    };
+    if (typeof run.adjacent.error === 'string') safe.adjacent.error = safeErrorCode(run.adjacent.error);
   }
   return safe;
 }
@@ -56,6 +65,8 @@ export function explainRunFailure(run, job = null) {
     code,
     attemptedAt: typeof run.timestamp === 'string' ? run.timestamp : null,
     job: job ? pick(job, ['id', 'date', 'start', 'end']) : (run.jobId ? { id: run.jobId } : null),
+    adjacent: Array.isArray(run.adjacent?.runs) ? run.adjacent.runs : [],
+    adjacentWindow: run.adjacent?.window || null,
   };
   if (/Opening grid was not ready with a complete permitted interval/i.test(code)) {
     return {

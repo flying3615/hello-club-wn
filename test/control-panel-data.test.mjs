@@ -105,3 +105,16 @@ test('does not claim no booking when payment or remote verification is uncertain
   assert.equal(unknown.code, 'redacted_error');
   assert.match(unknown.action, /远端日历确认/);
 });
+
+
+test('passes sanitized adjacent availability into the failure explanation', () => {
+  const run = publicRun({
+    status: 'failed', jobId: 'weekend-2026-11-21-0800', timestamp: '2026-11-14T18:00:20.000Z',
+    errorCode: 'Opening grid was not ready with a complete permitted interval',
+    adjacent: { window: { start: '06:00', end: '12:00' }, runs: [{ court: 'Court 1', start: '06:30', end: '08:00', secret: 'x' }] },
+  });
+  assert.deepEqual(run.adjacent, { window: { start: '06:00', end: '12:00' }, runs: [{ court: 'Court 1', start: '06:30', end: '08:00' }] });
+  const failure = explainRunFailure(run, { id: 'weekend-2026-11-21-0800', date: '2026-11-21', start: '08:00', end: '09:30' });
+  assert.deepEqual(failure.adjacent, [{ court: 'Court 1', start: '06:30', end: '08:00' }]);
+  assert.deepEqual(failure.adjacentWindow, { start: '06:00', end: '12:00' });
+});

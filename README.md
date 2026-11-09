@@ -129,19 +129,26 @@ npm run run:launchd -- \
 
 `src/create-launchd-agent.mjs` generates a one-shot watch LaunchAgent for isolated diagnostics; it is not the normal scheduled-booking workflow.
 
-## Weekly weekend booking
+## Weekly recurring bookings
 
-A separate LaunchAgent, `com.hermes.hello-club.weekend`, runs every Saturday and Sunday at **06:54 Pacific/Auckland**. It targets the same weekday seven days later, always **08:00–09:30**, and uses the same protected `execute` flow. It never substitutes another interval: if the full interval is unavailable, the run fails and the failure record includes nearby availability from **06:00–12:00** for that date.
+Two independent LaunchAgents run the same protected `execute` flow:
 
-The Mac must wake for the 06:54 run. Install the repeating weekend wake once from a normal Terminal:
+| Task | Launch time | Target | Fixed interval |
+| --- | --- | --- | --- |
+| `com.hermes.hello-club.monday` | Monday **06:54** | next Monday | **15:30–17:00** |
+| `com.hermes.hello-club.weekend` | Saturday/Sunday **06:54** | same weekday + 7 days | **08:00–09:30** |
+
+Each run targets the same weekday seven days later. It never substitutes another interval: if the full interval is unavailable, the run fails and the failure record includes nearby availability from **06:00–19:30** for that date.
+
+The Mac must wake for the 06:54 runs. Install the repeating wake once from a normal Terminal:
 
 ```bash
-sudo pmset repeat wakeorpoweron SU 06:53:00
+sudo pmset repeat wakeorpoweron MSU 06:53:00
 ```
 
-`SU` means Saturday and Sunday. This replaces any existing repeating wake/sleep pair; check `pmset -g sched` first if another repeating schedule is in use. A repeating wake works after sleep, not after shutdown.
+`MSU` means Monday, Saturday, and Sunday. This replaces any existing repeating wake/sleep pair; check `pmset -g sched` first if another repeating schedule is in use. A repeating wake works after sleep, not after shutdown.
 
-The first automatic run is the next Saturday/Sunday after installation and books the weekend **one week later** (for example, the Saturday 2026-11-14 run books 2026-11-21 08:00–09:30).
+The first Monday run is the next Monday after installation and books the Monday **one week later** (for example, the Monday 2026-11-16 run books 2026-11-23 15:30–17:00). The weekend task works the same way.
 
 ## Local control panel
 

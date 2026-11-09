@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextWeekendRun } from '../src/weekend-schedule.mjs';
+import { nextRecurringRun, nextWeekendRun } from '../src/weekend-schedule.mjs';
+import { RECURRING_TASKS } from '../src/recurring-tasks.mjs';
 
 test('finds the next Saturday morning run and its target date', () => {
   const next = nextWeekendRun(new Date('2026-11-08T20:24:00+13:00'));
@@ -24,4 +25,16 @@ test('rolls from Saturday to Sunday after the Saturday run', () => {
   assert.equal(next.local, '2026-11-15 06:54');
   assert.equal(next.weekday, 'Sunday');
   assert.equal(next.targetDate, '2026-11-22');
+});
+
+
+test('finds the next Monday morning run for the Monday task', () => {
+  const next = nextRecurringRun(new Date('2026-11-09T21:52:00+13:00'), RECURRING_TASKS.monday);
+  assert.deepEqual(next, {
+    at: '2026-11-15T17:54:00.000Z',
+    local: '2026-11-16 06:54',
+    date: '2026-11-16',
+    weekday: 'Monday',
+    targetDate: '2026-11-23',
+  });
 });

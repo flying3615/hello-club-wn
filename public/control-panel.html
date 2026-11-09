@@ -52,6 +52,7 @@
     .job-status { padding-top:2px; }
     .job-meta { display:flex; flex-wrap:wrap; gap:6px 18px; padding:12px 18px 18px; color:var(--muted); font-size:12px; }
     .job-meta b { color:var(--ink); font-weight:650; }
+    .recurring-task + .recurring-task { border-top:1px solid var(--line); }
     .recurring-last { padding:0 18px 18px; color:var(--muted); font-size:12px; line-height:1.6; }
     .recurring-last b { color:var(--ink); }
     .pill { display:inline-flex; align-items:center; min-height:22px; padding:2px 9px; border-radius:99px; background:var(--green-soft); color:var(--green); font-size:11px; font-weight:700; letter-spacing:.02em; white-space:nowrap; }
@@ -217,22 +218,26 @@
     }
     function renderRecurring(recurring) {
       const el = document.querySelector('#recurring');
-      const weekend = recurring?.weekend;
-      if (!weekend) { el.innerHTML = '<div class="empty">未配置周期任务。</div>'; return; }
-      const lastFailed = Number.isFinite(weekend.lastExitCode) && weekend.lastExitCode !== 0;
-      const status = !weekend.configured ? '未安装' : lastFailed ? '上次执行失败' : '已启用';
-      const statusKind = !weekend.configured ? 'bad' : lastFailed ? 'warn' : '';
-      const next = weekend.next;
-      const nextText = next ? `${next.local} · 目标 ${next.targetDate}` : '无法计算下一次执行';
-      const last = weekend.lastReport;
-      let lastHtml = '<div class="recurring-last">尚未执行过；首次运行会为下周同一天下单。</div>';
-      if (last && last.status === 'success') {
-        lastHtml = `<div class="recurring-last">上次成功：${esc(last.targetDate)} · ${esc(last.court || '—')} · 订单号 <span class="mono">${esc(last.remoteBookingId || '—')}</span></div>`;
-      } else if (last && last.status === 'failed') {
-        const adjacent = last.adjacent?.runs || [];
-        lastHtml = `<div class="recurring-last"><b>上次失败：</b>${esc(last.error || '未知错误')}${adjacent.length ? `<br><b>当天相邻可订：</b>${adjacent.map((run) => `${esc(run.court)} ${esc(run.start)}–${esc(run.end)}`).join('；')}` : '<br>当天相邻时段暂无可订场次。'}</div>`;
-      }
-      el.innerHTML = `<div class="job-summary"><div><div class="job-date">每周六、周日</div><div class="job-time">08:00–09:30</div></div><div class="job-status"><span class="pill ${statusKind}">${esc(status)}</span></div></div><div class="job-meta"><span>下次运行 <b>${esc(nextText)}</b></span><span>规则 <b>当天 + 7 天</b></span><span><b>仅尝试该时段，不改订</b></span></div>${lastHtml}`;
+      const tasks = recurring?.tasks || [];
+      if (!tasks.length) { el.innerHTML = '<div class="empty">未配置周期任务。</div>'; return; }
+      const weekdayShort = { Monday: '一', Tuesday: '二', Wednesday: '三', Thursday: '四', Friday: '五', Saturday: '六', Sunday: '日' };
+      el.innerHTML = tasks.map((task) => {
+        const schedule = task.weekdays?.length === 1 ? `每周${weekdayShort[task.weekdays[0]] || task.label}` : '每周六、周日';
+        const lastFailed = Number.isFinite(task.lastExitCode) && task.lastExitCode !== 0;
+        const status = !task.configured ? '未安装' : lastFailed ? '上次执行失败' : '已启用';
+        const statusKind = !task.configured ? 'bad' : lastFailed ? 'warn' : '';
+        const next = task.next;
+        const nextText = next ? `${next.local} · 目标 ${next.targetDate}` : '无法计算下一次执行';
+        const last = task.lastReport;
+        let lastHtml = `<div class="recurring-last">尚未执行过；首次运行会为下周${weekdayShort[task.weekdays?.[0]] || '同一天'}下单。</div>`;
+        if (last && last.status === 'success') {
+          lastHtml = `<div class="recurring-last">上次成功：${esc(last.targetDate)} · ${esc(last.court || '—')} · 订单号 <span class="mono">${esc(last.remoteBookingId || '—')}</span></div>`;
+        } else if (last && last.status === 'failed') {
+          const adjacent = last.adjacent?.runs || [];
+          lastHtml = `<div class="recurring-last"><b>上次失败：</b>${esc(last.error || '未知错误')}${adjacent.length ? `<br><b>当天相邻可订：</b>${adjacent.map((run) => `${esc(run.court)} ${esc(run.start)}–${esc(run.end)}`).join('；')}` : '<br>当天相邻时段暂无可订场次。'}</div>`;
+        }
+        return `<div class="recurring-task"><div class="job-summary"><div><div class="job-date">${esc(schedule)}</div><div class="job-time">${esc(task.window.start)}–${esc(task.window.end)}</div></div><div class="job-status"><span class="pill ${statusKind}">${esc(status)}</span></div></div><div class="job-meta"><span>下次运行 <b>${esc(nextText)}</b></span><span>规则 <b>当天 + 7 天</b></span><span><b>仅尝试该时段，不改订</b></span></div>${lastHtml}</div>`;
+      }).join('');
     }
     function renderJob(job) {
       const container = document.querySelector('#active-job');

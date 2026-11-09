@@ -53,7 +53,7 @@ export function publicAdjacent(adjacent) {
   return safe;
 }
 
-export function publicWeekendReport(report) {
+export function publicRecurringReport(report) {
   const safe = pick(report, ['status', 'targetDate', 'court', 'paymentStatus', 'remoteBookingId', 'error', 'verifiedAt', 'adjacent']);
   if (!safe?.status || !['success', 'failed'].includes(safe.status) || !/^\d{4}-\d{2}-\d{2}$/.test(safe.targetDate || '')) return null;
   if (safe.court !== undefined && !/^Court [1-6]$/.test(safe.court)) delete safe.court;
@@ -64,6 +64,8 @@ export function publicWeekendReport(report) {
   if (safe.adjacent) safe.adjacent = publicAdjacent(safe.adjacent);
   return safe;
 }
+
+export const publicWeekendReport = publicRecurringReport;
 
 export function publicDispatch(marker) {
   const safe = pick(marker, ['status', 'jobId', 'timestamp', 'exitCode', 'reason']);

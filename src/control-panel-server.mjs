@@ -5,16 +5,16 @@ import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { promisify } from 'node:util';
 import {
-  explainRunFailure, presentActivity, publicBooking, publicDispatch, publicJob, publicRun, publicWeekendReport, readJsonLines,
+  explainRunFailure, presentActivity, publicBooking, publicDispatch, publicJob, publicRun, publicRecurringReport, readJsonLines,
 } from './control-panel-data.mjs';
 import { createRemoteBookingCache, partitionRemoteBookings, readRemoteBookings } from './remote-bookings.mjs';
-import { nextWeekendRun } from './weekend-schedule.mjs';
+import { nextRecurringRun } from './weekend-schedule.mjs';
+import { RECURRING_TASKS } from './recurring-tasks.mjs';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DIR = path.resolve(new URL('..', import.meta.url).pathname);
 const STATE_DIR = path.join(PROJECT_DIR, 'state');
 const DISPATCHER_LABEL = 'com.hermes.hello-club.dispatcher';
-const WEEKEND_LABEL = 'com.hermes.hello-club.weekend';
 const INDEX_FILE = path.join(PROJECT_DIR, 'public', 'control-panel.html');
 const LOOPBACK_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8787;
@@ -95,17 +95,18 @@ async function dispatcherHealth() {
   return launchAgentHealth(DISPATCHER_LABEL);
 }
 
-async function readLatestWeekendReport() {
+async function readLatestRecurringReport(taskId) {
   const directory = path.join(STATE_DIR, 'reports');
+  const pattern = new RegExp(`^${taskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d{4}-\\d{2}-\\d{2}\\.json$`);
   try {
     const entries = await fs.readdir(directory, { withFileTypes: true });
     const files = entries
-      .filter((entry) => entry.isFile() && /^weekend-\d{4}-\d{2}-\d{2}\.json$/.test(entry.name))
+      .filter((entry) => entry.isFile() && pattern.test(entry.name))
       .map((entry) => entry.name)
       .sort()
       .reverse();
     for (const file of files) {
-      const report = await readJsonFile(path.join(directory, file), publicWeekendReport);
+      const report = await readJsonFile(path.join(directory, file), publicRecurringReport);
       if (report) return report;
     }
   } catch {
@@ -146,14 +147,8 @@ async function lockState() {
 
 export async function buildStatus() {
   const nowDate = new Date();
-  let nextWeekend = null;
-  try {
-    nextWeekend = nextWeekendRun(nowDate);
-  } catch {
-    nextWeekend = null;
-  }
   const [
-    activeJob, dispatcher, cdp, chrome, locks, runs, dispatches, weekend, weekendReport,
+    activeJob, dispatcher, cdp, chrome, locks, runs, dispatches,
   ] = await Promise.all([
     readJsonFile(path.join(STATE_DIR, 'jobs', 'active.json'), publicJob),
     dispatcherHealth(),
@@ -162,9 +157,28 @@ export async function buildStatus() {
     lockState(),
     readJsonLines(path.join(STATE_DIR, 'launchd', 'runs'), publicRun, { limit: 40 }),
     readJsonLines(path.join(STATE_DIR, 'launchd', 'dispatch-history'), publicDispatch, { limit: 40 }),
-    launchAgentHealth(WEEKEND_LABEL),
-    readLatestWeekendReport(),
   ]);
+  const recurringTasks = await Promise.all(Object.values(RECURRING_TASKS).map(async (task) => {
+    const [health, lastReport] = await Promise.all([
+      launchAgentHealth(task.launchdLabel),
+      readLatestRecurringReport(task.id),
+    ]);
+    let next = null;
+    try {
+      next = nextRecurringRun(nowDate, task);
+    } catch {
+      next = null;
+    }
+    return {
+      id: task.id,
+      label: task.label,
+      ...health,
+      window: { start: task.start, end: task.end },
+      weekdays: task.weekdays,
+      next,
+      lastReport,
+    };
+  }));
   const marker = activeJob
     ? await readJsonFile(path.join(STATE_DIR, 'launchd', 'dispatch', `${activeJob.id}.json`), publicDispatch)
     : null;
@@ -200,16 +214,7 @@ export async function buildStatus() {
     lastRun,
     lastFailure,
     lastSuccess,
-    recurring: {
-      weekend: {
-        label: WEEKEND_LABEL,
-        ...weekend,
-        window: { start: '08:00', end: '09:30' },
-        weekdays: ['Saturday', 'Sunday'],
-        next: nextWeekend,
-        lastReport: weekendReport,
-      },
-    },
+    recurring: { tasks: recurringTasks },
     activity: presentActivity({ dispatches: marker ? [marker, ...dispatches] : dispatches, runs }),
     bookings: {
       upcoming: groupedBookings.upcoming.map(publicBooking).filter(Boolean),

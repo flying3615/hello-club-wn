@@ -133,3 +133,14 @@ test('uses only safe fields from the weekend report', () => {
   });
   assert.equal(publicWeekendReport({ status: 'failed', targetDate: 'not-a-date' }), null);
 });
+
+
+test('explains a missing selection modal without claiming a booking', () => {
+  const failure = explainRunFailure({
+    status: 'failed', jobId: '2026-11-16-1530', timestamp: '2026-11-09T07:00:31.000Z',
+    errorCode: 'locator.waitFor: Timeout 5000ms exceeded. Call log: - waiting for locator(.modal-wrapper:visible)',
+  });
+  assert.match(failure.reason, /预约弹窗/);
+  assert.match(failure.action, /未创建预约/);
+  assert.match(failure.action, /不会自动改订/);
+});

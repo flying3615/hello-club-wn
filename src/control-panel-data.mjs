@@ -93,6 +93,15 @@ export function explainRunFailure(run, job = null) {
       action: '未创建预约。请检查当前余位或重新安排一次预约。',
     };
   }
+  if (/modal-wrapper|waitFor[^\n]*modal/i.test(code)) {
+    return {
+      ...base,
+      title: '上次预约未成功',
+      reason: '选择时段后没有出现预约弹窗，所选时长或时段可能不可用。',
+      detail: '页面已加载，但点击开始/结束时段后未弹出预约确认框。2 小时连续时段可能超过该账户或场地允许的单次时长；1.5 小时可以正常选择。',
+      action: '未创建预约。请尝试较短的完整时段，系统不会自动改订其他时段。',
+    };
+  }
   if (/latest start deadline|latest_start_passed|late_start/i.test(code)) {
     return {
       ...base,

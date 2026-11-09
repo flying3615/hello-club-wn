@@ -95,6 +95,15 @@ export function explainRunFailure(run, job = null) {
       action: '未创建预约。请检查当前余位或重新安排一次预约。',
     };
   }
+  if (/peak boundary|peak time|crosses the .*peak/i.test(code)) {
+    return {
+      ...base,
+      title: '时段跨越 peak 边界',
+      reason: '预约区间跨越了普通时段和 peak time 的分界点。工作日 17:00 起为 peak，周末 13:00 起为 peak；同一个预约不能跨两段。',
+      detail: '场地不允许一个预约同时包含普通时段和 peak 时段。结束时间正好在 peak 开始前，或从 peak 开始单独预约，都是允许的。',
+      action: '未提交预约。请把结束时间放在 peak 开始前，或从 peak 开始单独预约；系统不会自动拆分或改订。',
+    };
+  }
   if (/modal-wrapper|waitFor[^\n]*modal/i.test(code)) {
     return {
       ...base,

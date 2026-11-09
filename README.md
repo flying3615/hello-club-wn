@@ -129,6 +129,19 @@ npm run run:launchd -- \
 
 `src/create-launchd-agent.mjs` generates a one-shot watch LaunchAgent for isolated diagnostics; it is not the normal scheduled-booking workflow.
 
+## Peak boundaries
+
+Hello Club books a single continuous interval inside one rate segment; it cannot span the normal/peak boundary. The configured boundaries are:
+
+| Day type | Peak window |
+| --- | --- |
+| Monday–Friday | **17:00–21:30** |
+| Saturday–Sunday | **13:00–21:00** |
+
+A booking may end exactly at the peak start, or start exactly at the peak start/end boundary. A crossing interval is rejected when the job is built and again before submission, with a clear `peak boundary` error. The automation never splits a crossing interval or substitutes another one.
+
+The weekday/weekend decision currently uses the Auckland weekday only; public-holiday schedules are not modelled separately.
+
 ## Weekly recurring bookings
 
 Two independent LaunchAgents run the same protected `execute` flow:

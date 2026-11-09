@@ -1,6 +1,7 @@
 import { writeIntentFence, clearIntentFence } from './intent-fence.mjs';
 import { remoteRecordMatchesIntent } from './booking-intent.mjs';
 import { readRemoteBookings } from './remote-bookings.mjs';
+import { assertPeakBoundary } from './peak-time.mjs';
 import {
   classifyPostConfirm, verifyExactParticipantSet, verifyFinalReview, verifyPaymentPage, verifyRemoteBookingRecord, verifySelection,
 } from './booking-execution.mjs';
@@ -292,6 +293,7 @@ export async function submitBooking({
 }) {
   const scope = gridRoot || page;
   assertDeadline();
+  assertPeakBoundary({ date: job.date, start: job.start, end: job.end });
   assertVenue(await page.locator('body').innerText());
   preflightBookingSubmission({ grid, court, start: job.start, end: job.end });
   const { startSlot, endSlot } = await preflightRenderedBookingSlots({

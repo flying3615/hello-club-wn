@@ -176,3 +176,18 @@ test('derives a single safe RTC wake before the exact prewarm trigger', () => {
     command: ['sudo', '/usr/bin/pmset', 'schedule', 'wake', '10/19/26 06:53:00', 'com.hermes.hello-club'],
   });
 });
+
+
+test('rejects a booking that crosses the weekday peak boundary', () => {
+  const job = validJob();
+  job.start = '16:30';
+  job.end = '17:30';
+  assert.throws(() => validateBookingJob(job), /weekday peak boundary at 17:00/i);
+});
+
+test('accepts a booking ending exactly at the weekday peak boundary', () => {
+  const job = validJob();
+  job.start = '15:30';
+  job.end = '17:00';
+  assert.deepEqual(validateBookingJob(job), job);
+});

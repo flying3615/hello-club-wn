@@ -1,4 +1,5 @@
 import { openingInstantForTargetDate } from './opening-window.mjs';
+import { assertPeakBoundary } from './peak-time.mjs';
 
 const COURTS = new Set(['Court 1', 'Court 2', 'Court 3', 'Court 4', 'Court 5', 'Court 6']);
 const ALLOWED_KEYS = new Set([
@@ -49,6 +50,7 @@ export function validateBookingJob(job, { mode = 'watch' } = {}) {
   assert(typeof job.start === 'string' && TIME.test(job.start), 'start must be a 30-minute HH:MM value');
   assert(typeof job.end === 'string' && TIME.test(job.end), 'end must be a 30-minute HH:MM value');
   assert(halfHours(job.end) > halfHours(job.start), 'Booking range must end after it starts on the same date');
+  assertPeakBoundary({ date: job.date, start: job.start, end: job.end });
   const openAt = parseInstant(job.openAt, 'openAt');
   const expectedOpenAt = openingInstantForTargetDate(job.date);
   assert(openAt === expectedOpenAt, 'openAt must be 07:00 Pacific/Auckland on the target weekday seven days earlier');

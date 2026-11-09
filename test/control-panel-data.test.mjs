@@ -144,3 +144,14 @@ test('explains a missing selection modal without claiming a booking', () => {
   assert.match(failure.action, /未创建预约/);
   assert.match(failure.action, /不会自动改订/);
 });
+
+
+test('explains a peak boundary rejection without claiming a booking', () => {
+  const failure = explainRunFailure({
+    status: 'failed', jobId: '2026-11-16-1530', timestamp: '2026-11-09T07:00:31.000Z',
+    errorCode: 'Booking interval crosses the weekday peak boundary at 17:00; choose an interval entirely before or after peak time',
+  });
+  assert.match(failure.reason, /peak/);
+  assert.match(failure.action, /未提交预约/);
+  assert.match(failure.action, /不会自动拆分/);
+});

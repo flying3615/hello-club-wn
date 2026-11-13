@@ -333,9 +333,12 @@
       const items = [];
       const chrome = status.processes?.chrome;
       items.push(chrome?.cdpReachable ? ['ok', '专用 Chrome', '已连接'] : ['bad', '专用 Chrome', '没有连接']);
-      const login = status.login || {};
+      if (!status.login) {
+        items.push(['warn', 'Hello Club 登录', '面板服务是旧版本，重启后才会检查']);
+      }
+      const login = status.login || { state: 'stale_server' };
       const checked = login.checkedAt ? `，${clock(login.checkedAt)} 检查` : '';
-      items.push(login.state === 'signed_in' ? ['ok', 'Hello Club 登录', `已登录${checked}`]
+      if (status.login) items.push(login.state === 'signed_in' ? ['ok', 'Hello Club 登录', `已登录${checked}`]
         : login.state === 'signed_out' ? ['bad', 'Hello Club 登录', `没有登录${checked}`]
         : ['warn', 'Hello Club 登录', chrome?.cdpReachable ? (login.checkedAt ? `无法确认${checked}` : '还没检查') : 'Chrome 未连接，无法检查']);
       const sync = status.remoteSync || {};

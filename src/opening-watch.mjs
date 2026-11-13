@@ -1,6 +1,5 @@
 import {
   connectExistingChrome,
-  isPagePreloading,
   isTargetClosedError,
   openRawBookingPage,
 } from './session.mjs';
@@ -9,7 +8,6 @@ import { scanBookingGrid } from './booking-grid.mjs';
 import { chooseCourt } from './booking-policy.mjs';
 import {
   normalizePollOptions,
-  pollUntilReady,
   waitUntilOpeningWindow,
 } from './opening-window.mjs';
 export { waitUntilOpeningWindow };
@@ -85,33 +83,51 @@ export function isTargetPageReady(bodyText, date) {
   return required.every((item) => text.includes(item));
 }
 
+// Runs inside the page. Shared by a one-shot check and by waitForFunction polling.
+function targetGridReadyProbe(targetDateLabel) {
+  const bodyText = String(document.body?.innerText || '').trim();
+  if (/^Loading(?:\.\.\.|…)/.test(bodyText)) return false;
+  const preloader = document.querySelector('#Preloader');
+  if (preloader) {
+    const style = getComputedStyle(preloader);
+    if (style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0) return false;
+  }
+  const grid = [...document.querySelectorAll('.BookingGrid')].find((candidate) => (
+    candidate.querySelectorAll('.BookingGrid-column booking-grid-slot').length >= 48 * 6
+  ));
+  if (!grid) return false;
+  const host = grid.closest('booking-grid');
+  const ctrl = host && window.angular ? window.angular.element(host).scope?.()?.$ctrl : null;
+  if (!ctrl || ctrl.hasLoadedData !== true) return false;
+  if (Array.isArray(ctrl.loadOps) && ctrl.loadOps.length > 0) return false;
+  if (document.querySelectorAll('booking-grid-slot.ng-animate').length > 0) return false;
+  const card = grid.closest('.Card');
+  const text = String(card?.innerText || '');
+  const courts = [...(card || grid).querySelectorAll('.BookingGridArea-name')]
+    .map((node) => node.textContent?.trim()).filter((name) => /^Court [1-6]$/.test(name));
+  return text.includes('Wellington North Badminton Stadium')
+    && text.includes(targetDateLabel)
+    && new Set(courts).size === 6;
+}
+
 export async function isTargetGridReady(page, date) {
-  const label = formatTargetDateLabel(date);
-  return page.evaluate((targetDateLabel) => {
-    const bodyText = String(document.body?.innerText || '').trim();
-    if (/^Loading(?:\.\.\.|…)/.test(bodyText)) return false;
-    const preloader = document.querySelector('#Preloader');
-    if (preloader) {
-      const style = getComputedStyle(preloader);
-      if (style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0) return false;
-    }
-    const grid = [...document.querySelectorAll('.BookingGrid')].find((candidate) => (
-      candidate.querySelectorAll('.BookingGrid-column booking-grid-slot').length >= 48 * 6
-    ));
-    if (!grid) return false;
-    const host = grid.closest('booking-grid');
-    const ctrl = host && window.angular ? window.angular.element(host).scope?.()?.$ctrl : null;
-    if (!ctrl || ctrl.hasLoadedData !== true) return false;
-    if (Array.isArray(ctrl.loadOps) && ctrl.loadOps.length > 0) return false;
-    if (document.querySelectorAll('booking-grid-slot.ng-animate').length > 0) return false;
-    const card = grid.closest('.Card');
-    const text = String(card?.innerText || '');
-    const courts = [...(card || grid).querySelectorAll('.BookingGridArea-name')]
-      .map((node) => node.textContent?.trim()).filter((name) => /^Court [1-6]$/.test(name));
-    return text.includes('Wellington North Badminton Stadium')
-      && text.includes(targetDateLabel)
-      && new Set(courts).size === 6;
-  }, label);
+  return page.evaluate(targetGridReadyProbe, formatTargetDateLabel(date));
+}
+
+/** Resolves true as soon as the target grid is ready (checked every 100ms), false on timeout. */
+export async function waitForTargetGrid(page, date, timeoutMs) {
+  try {
+    await page.waitForFunction(targetGridReadyProbe, formatTargetDateLabel(date), { polling: 100, timeout: timeoutMs });
+    return true;
+  } catch (error) {
+    if (/Timeout/i.test(String(error?.message))) return false;
+    throw error;
+  }
+}
+
+async function scanTargetGrid(page, date) {
+  const gridRoot = await locateTargetCalendarGridRoot(page, date);
+  return { gridRoot, grid: await scanBookingGrid(gridRoot) };
 }
 
 export function createSelfHealingTab({ context, targetUrl, maxReopens = 3 }) {
@@ -146,23 +162,11 @@ export function createSelfHealingTab({ context, targetUrl, maxReopens = 3 }) {
 }
 
 export async function reloadTargetGrid({
-  page, date, baseUrl = DEFAULT_BASE_URL, timeoutMs = 20_000, pollMs = 1_000,
-  now = () => Date.now(), sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  page, date, baseUrl = DEFAULT_BASE_URL, timeoutMs = 15_000, scan = scanTargetGrid,
 }) {
-  const targetUrl = bookingUrl(date, baseUrl);
-  await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-  const poll = await pollUntilReady({
-    isReady: async () => isTargetGridReady(page, date),
-    refresh: async () => {},
-    pollMs,
-    timeoutMs,
-    now,
-    sleep,
-  });
-  if (!poll.ready) throw new Error('Target grid did not become ready after reload');
-  const gridRoot = await locateTargetCalendarGridRoot(page, date);
-  const grid = await scanBookingGrid(gridRoot);
-  return { gridRoot, grid };
+  await page.goto(bookingUrl(date, baseUrl), { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  if (!await waitForTargetGrid(page, date, timeoutMs)) throw new Error('Target grid did not become ready after reload');
+  return scan(page, date);
 }
 
 export async function waitForOpeningInstant({ openAtMs, now, sleep }) {
@@ -181,6 +185,16 @@ function usage() {
   console.log('Usage: node src/opening-watch.mjs --date YYYY-MM-DD --start HH:MM --end HH:MM --open-at ISO [--cdp] [--poll-ms 2500] [--timeout-ms 180000] [--lead-ms 15000]');
 }
 
+/** True when any court has at least one free slot that ends inside [start, end). */
+export function gridHasFreeTime(grid, { start, end }) {
+  const toMinutes = (value) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5));
+  const from = toMinutes(start);
+  const to = toMinutes(end);
+  return (grid || []).some((column) => (column.slots || []).some((slot) => (
+    slot?.available === true && toMinutes(slot.start) >= from && toMinutes(slot.end) <= to
+  )));
+}
+
 export async function watchOpening({
   context,
   date,
@@ -192,6 +206,15 @@ export async function watchOpening({
   pollMs = 2_500,
   timeoutMs = 180_000,
   leadMs = 15_000,
+  // Decides whether the scanned grid already shows the opened day. Defaults to "the
+  // requested interval is complete on some court".
+  isOpen = null,
+  // Within this long after the opening, a grid that does not look open yet is reloaded
+  // (a request that reached the server a moment before 07:00 can still show the old day).
+  openGraceMs = 20_000,
+  readyTimeoutMs = 8_000,
+  mark = () => {},
+  scan = scanTargetGrid,
   now = () => Date.now(),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
@@ -204,8 +227,6 @@ export async function watchOpening({
     if (!isTargetClosedError(error)) throw error;
   }
 
-  // Prewarm: re-navigate shortly before the opening so a tab that was discarded,
-  // crashed or detached while the Mac slept is replaced before the critical instant.
   const tolerantNavigate = async () => {
     try {
       await tab.navigate();
@@ -213,46 +234,46 @@ export async function watchOpening({
       if (tab.browserDisconnected()) throw error;
     }
   };
+  // Prewarm: re-navigate shortly before the opening so a tab that was discarded,
+  // crashed or detached while the Mac slept is replaced before the critical instant.
   if (now() < openAtMs - 2_000) {
     await waitUntilOpeningWindow({ openAtMs, leadMs: options.leadMs, now, sleep });
     await tolerantNavigate();
+    mark('prewarm_navigated');
   }
-
   await waitForOpeningInstant({ openAtMs, now, sleep });
-  await tolerantNavigate();
 
-  const poll = await pollUntilReady({
-    isReady: async () => {
-      try {
-        return await isTargetGridReady(await tab.live(), date);
-      } catch (error) {
-        // A closed tab is replaced by tab.live() on the next refresh; a context
-        // destroyed by an in-flight reload simply means "not ready yet".
-        if (!isTargetClosedError(error) || tab.browserDisconnected()) throw error;
-        return false;
-      }
-    },
-    refresh: async () => {
-      try {
-        const current = await tab.live();
-        if (await isPagePreloading(current)) return;
-      } catch (error) {
-        if (!isTargetClosedError(error) || tab.browserDisconnected()) throw error;
-      }
-      // A slow or failed reload must not abort the bounded opening window;
-      // only a disconnected browser is fatal here (the caller reconnects).
-      await tolerantNavigate();
-    },
-    pollMs: options.pollMs,
-    timeoutMs: options.timeoutMs,
-    now,
-    sleep,
+  const looksOpen = isOpen || ((grid) => {
+    if (!start || !end) return true;
+    try { chooseCourt(grid, { start, end }, courtOrder); return true; } catch { return false; }
   });
-  const page = await tab.live();
-
-  if (!poll.ready) return { page, poll, targetUrl, gridRoot: null, grid: null, selection: null };
-  const gridRoot = await locateTargetCalendarGridRoot(page, date);
-  const grid = await scanBookingGrid(gridRoot);
+  const deadline = now() + options.timeoutMs;
+  let attempts = 0;
+  let found = null;
+  while (now() < deadline) {
+    attempts += 1;
+    await tolerantNavigate();
+    mark('navigated', { attempt: attempts });
+    let ready = false;
+    try {
+      ready = await waitForTargetGrid(await tab.live(), date, Math.min(readyTimeoutMs, Math.max(1, deadline - now())));
+    } catch (error) {
+      // A tab closed or a context destroyed mid-load: reload on the next pass.
+      if (!isTargetClosedError(error) || tab.browserDisconnected()) throw error;
+    }
+    if (!ready) continue;
+    const page = await tab.live();
+    const scanned = await scan(page, date);
+    mark('grid_scanned', { attempt: attempts });
+    found = { page, ...scanned };
+    if (looksOpen(scanned.grid) || now() >= openAtMs + openGraceMs) break;
+    mark('not_open_yet', { attempt: attempts });
+    await sleep(300);
+  }
+  const page = found?.page || await tab.live();
+  const poll = { ready: Boolean(found), timedOut: !found, attempts };
+  if (!found) return { page, poll, targetUrl, gridRoot: null, grid: null, selection: null };
+  const { gridRoot, grid } = found;
   let selection = null;
   if (start && end) {
     try {

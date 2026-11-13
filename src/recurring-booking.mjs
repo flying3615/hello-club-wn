@@ -8,7 +8,6 @@ import { nearbyAvailableRuns } from './availability.mjs';
 import { openingInstantForTargetDate } from './opening-window.mjs';
 import { runLaunchdJob } from './launchd-runner.mjs';
 import { validateBookingJob } from './launchd-job.mjs';
-import { readRemoteBookings } from './remote-bookings.mjs';
 import { getRecurringTask } from './recurring-tasks.mjs';
 
 const PROJECT_DIR = path.resolve(new URL('..', import.meta.url).pathname);
@@ -138,18 +137,6 @@ async function scanAdjacent(targetDate) {
   }
 }
 
-async function findRemoteBooking(job, court) {
-  try {
-    const records = await readRemoteBookings();
-    return records.find((record) => record.date === job.date
-      && record.start === job.start
-      && record.end === job.end
-      && record.court === court) || null;
-  } catch {
-    return null;
-  }
-}
-
 export async function runRecurringBooking({
   taskId,
   now = new Date(),
@@ -191,7 +178,8 @@ export async function runRecurringBooking({
   if (verifiedStatus) {
     const court = result.selection?.court || null;
     const segments = result.selection?.segments || null;
-    const remote = court && !segments ? await findRemoteBooking(job, court) : null;
+    // The runner already verified the booking against the remote calendar and returns its ID.
+    const remote = result.remoteBookingId ? { id: result.remoteBookingId } : null;
     await appendRun({
       status: result.status || 'booking_verified',
       mode: 'execute',
@@ -203,6 +191,7 @@ export async function runRecurringBooking({
       finishedAt: result.finishedAt,
       selection: result.selection,
       paymentStatus: result.paymentStatus,
+      timeline: result.timeline,
     }, now);
     const archived = await archiveJob(jobFile, job, 'completed');
     const report = await writeReport({
@@ -216,6 +205,7 @@ export async function runRecurringBooking({
       paymentStatus: result.paymentStatus,
       remoteBookingId: remote?.id || segments?.[0]?.remoteBookingId || null,
       verifiedAt: result.finishedAt || new Date().toISOString(),
+      timeline: result.timeline,
       archived,
     }, task, now);
     console.log(JSON.stringify({ status: 'recurring_success', taskId: task.id, targetDate: job.date, court, segments, remoteBookingId: remote?.id || null, report }));
@@ -237,6 +227,7 @@ export async function runRecurringBooking({
     timestamp: startedAt,
     errorCode: message,
     attempts: attemptErrors,
+    timeline: failure?.timeline,
     adjacent,
   }, now);
   const archived = await archiveJob(jobFile, job, 'failed');
@@ -247,6 +238,7 @@ export async function runRecurringBooking({
     job,
     error: message,
     attempts: attemptErrors,
+    timeline: failure?.timeline,
     adjacent,
     archived,
   }, task, now);

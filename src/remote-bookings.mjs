@@ -97,8 +97,13 @@ export function createRemoteBookingCache({ read, now = () => Date.now(), ttlMs =
   let syncedAt = null;
   let inFlight = null;
   return {
-    async get({ force = false, freshAfter = null } = {}) {
+    async get({ force = false, freshAfter = null, allowRefresh = true } = {}) {
       const current = now();
+      // While refreshing is not allowed (around the opening), serve what is cached.
+      if (!allowRefresh) {
+        const state = syncedAt === null ? 'unavailable' : current - syncedAt < ttlMs ? 'fresh' : 'stale';
+        return { bookings, syncedAt, state };
+      }
       const requiresNewer = Number.isFinite(freshAfter) && (syncedAt === null || syncedAt < freshAfter);
       if (!force && !requiresNewer && syncedAt !== null && current - syncedAt < ttlMs) {
         return { bookings, syncedAt, state: 'fresh' };
@@ -121,11 +126,22 @@ export function createRemoteBookingCache({ read, now = () => Date.now(), ttlMs =
   };
 }
 
-export async function readRemoteBookings({ now = new Date().toISOString(), connect = connectExistingChrome } = {}) {
+/** The calendar month page that contains a YYYY-MM-DD date. */
+export function monthAnchorFor(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) throw new Error(`Invalid booking date: ${date}`);
+  return `${date.slice(0, 7)}-01`;
+}
+
+/** A reader limited to the month of one booking date: one page load instead of four. */
+export function remoteBookingReaderForDate(date, read = readRemoteBookings) {
+  const months = [monthAnchorFor(date)];
+  return () => read({ months });
+}
+
+export async function readRemoteBookings({ now = new Date().toISOString(), connect = connectExistingChrome, months = monthSyncAnchors(now) } = {}) {
   const { browser, context } = await connect();
   try {
     const verifiedAt = new Date().toISOString();
-    const months = monthSyncAnchors(now);
     const records = [];
     for (const anchor of months) {
       const bookings = await calendarMonthBookings(context, anchor);

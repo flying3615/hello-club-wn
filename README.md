@@ -127,7 +127,6 @@ npm run run:launchd -- \
   --cdp-endpoint http://127.0.0.1:9223
 ```
 
-`src/create-launchd-agent.mjs` generates a one-shot watch LaunchAgent for isolated diagnostics; it is not the normal scheduled-booking workflow.
 
 ## Peak boundaries
 

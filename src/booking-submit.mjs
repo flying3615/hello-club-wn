@@ -307,6 +307,7 @@ export async function submitBooking({
   assertDeadline = () => {},
   priorBookings: prefetchedPriorBookings = null,
   deferVerification = false,
+  mark = () => {},
 }) {
   const scope = gridRoot || page;
   assertDeadline();
@@ -328,6 +329,7 @@ export async function submitBooking({
   let review;
   try {
     assertDeadline();
+    mark('slot_clicked', { court, start: job.start, end: job.end });
     await selectRenderedSlotRange({ startSlot, endSlot, singleSlot, assertDeadline });
     const modal = visibleModal(page);
     await modal.waitFor({ state: 'visible', timeout: 5_000 });
@@ -369,9 +371,11 @@ export async function submitBooking({
   await writeFence({ job, phase: 'confirmation_unknown', priorBookingIds: [...priorBookingIds], selectedCourt: court, segment: { date: job.date, start: job.start, end: job.end } });
   assertDeadline();
   await clickExact(review, 'CONFIRM BOOKING');
+  mark('confirm_clicked', { court, start: job.start, end: job.end });
   await pause(1_000);
 
   let paymentStatus = await waitForPostConfirmState(page);
+  mark('post_confirm', { court, state: paymentStatus });
   let remoteBookingId = null;
   if (paymentStatus === 'payment_required') {
     const payment = verifyPaymentPage({
@@ -397,6 +401,37 @@ export async function submitBooking({
   // the confirmation fence stays in place until verifySubmittedBooking succeeds.
   if (deferVerification) return { court, paymentStatus, pending };
   return verifySubmittedBooking({ pending, read, clearFence });
+}
+
+/**
+ * Verifies several submitted bookings against one remote read per attempt, instead of
+ * reading the calendar separately for each booking. Clears each verified fence.
+ */
+export async function verifySubmittedBookings({
+  pendings, read = readRemoteBookings, clearFence = clearIntentFence, attempts = 5, delayMs = 2_000, sleep = pause,
+}) {
+  const outcomes = new Map();
+  let remaining = [...pendings];
+  for (let attempt = 1; attempt <= attempts && remaining.length; attempt += 1) {
+    const records = await read();
+    remaining = remaining.filter((pending) => {
+      const record = findNewMatchingRemoteBooking(records, pending.job, pending.court, pending.priorBookingIds, pending.remoteBookingId);
+      if (!record) return true;
+      try {
+        verifyRemoteBookingRecord(record, pending.job, pending.court, pending.paymentStatus, pending.remoteBookingId);
+        outcomes.set(pending, { ok: true, court: pending.court, paymentStatus: pending.paymentStatus, remoteBookingId: record.id });
+      } catch (error) {
+        outcomes.set(pending, { ok: false, error: String(error?.message || error) });
+      }
+      return false;
+    });
+    if (remaining.length && attempt < attempts) await sleep(delayMs);
+  }
+  for (const pending of pendings) {
+    if (outcomes.get(pending)?.ok) await clearFence({ job: pending.job });
+  }
+  return pendings.map((pending) => outcomes.get(pending)
+    || { ok: false, error: 'Remote calendar did not show a newly created exact booking in time' });
 }
 
 export async function verifySubmittedBooking({ pending, read = readRemoteBookings, clearFence = clearIntentFence, waitOptions = {} }) {

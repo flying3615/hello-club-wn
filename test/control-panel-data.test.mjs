@@ -213,3 +213,43 @@ test('classifies Hello Club sign-in from rendered text only', async () => {
   assert.equal(probes, 1);
   assert.equal((await cache.get({ cdpReachable: false })).state, 'unknown');
 });
+
+test('serves the cached calendar without opening tabs while refreshing is not allowed', async () => {
+  const { createRemoteBookingCache } = await import('../src/remote-bookings.mjs');
+  let reads = 0;
+  let clock = 0;
+  const cache = createRemoteBookingCache({ read: async () => { reads += 1; return [{ id: 'x' }]; }, ttlMs: 1_000, now: () => clock });
+  assert.equal((await cache.get({ allowRefresh: false })).state, 'unavailable');
+  assert.equal(reads, 0);
+  await cache.get();
+  clock = 5_000;
+  const held = await cache.get({ allowRefresh: false, freshAfter: 4_000 });
+  assert.equal(reads, 1);
+  assert.equal(held.state, 'stale');
+  assert.equal((await cache.get({ freshAfter: 4_000 })).state, 'fresh');
+  assert.equal(reads, 2);
+});
+
+test('reads only the newest run files needed for the activity list', async () => {
+  const os = await import('node:os');
+  const { readJsonLines } = await import('../src/control-panel-data.mjs');
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'runs-'));
+  await fs.writeFile(path.join(directory, '2026-11-01.jsonl'), '{"status":"old","timestamp":"2026-11-01T00:00:00Z"}\nnot json\n');
+  await fs.writeFile(path.join(directory, '2026-11-14.jsonl'), '{"status":"a","timestamp":"2026-11-14T01:00:00Z"}\n{"status":"b","timestamp":"2026-11-14T02:00:00Z"}\n');
+  const values = await readJsonLines(directory, (value) => value, { limit: 2 });
+  assert.deepEqual(values.map((value) => value.status), ['b', 'a']);
+  await fs.rm(directory, { recursive: true, force: true });
+});
+
+test('keeps only known phase labels and safe fields in a run timeline', async () => {
+  const { publicTimeline } = await import('../src/control-panel-data.mjs');
+  const timeline = publicTimeline([
+    { label: 'open_at', at: '2026-11-14T18:00:00.000Z' },
+    { label: 'confirm_clicked', at: '2026-11-14T18:00:02.400Z', court: 'Court 4', start: '08:00', secret: 'x' },
+    { label: 'cookie', at: '2026-11-14T18:00:03.000Z' },
+  ]);
+  assert.deepEqual(timeline, [
+    { label: 'open_at', at: '2026-11-14T18:00:00.000Z' },
+    { label: 'confirm_clicked', at: '2026-11-14T18:00:02.400Z', court: 'Court 4', start: '08:00' },
+  ]);
+});

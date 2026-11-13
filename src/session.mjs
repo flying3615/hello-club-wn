@@ -37,21 +37,6 @@ export function isBookingContentReady(bodyText) {
   return /Court\s+[1-6]/i.test(text) && text.length >= 30;
 }
 
-export async function isPagePreloading(page) {
-  return page.evaluate(() => {
-    const text = String(document.body?.innerText || '').trim();
-    if (/^Loading(?:\.\.\.|…)/.test(text)) return true;
-    const preloader = document.querySelector('#Preloader');
-    if (preloader) {
-      const style = getComputedStyle(preloader);
-      if (style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0) return true;
-    }
-    const host = document.querySelector('booking-grid');
-    const ctrl = host && window.angular ? window.angular.element(host).scope?.()?.$ctrl : null;
-    return Boolean(ctrl && Array.isArray(ctrl.loadOps) && ctrl.loadOps.length > 0);
-  });
-}
-
 export async function waitForBookingGridReady(page, timeout = 30_000) {
   await page.waitForFunction(() => {
     const text = String(document.body?.innerText || '').trim();

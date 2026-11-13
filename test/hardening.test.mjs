@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSelfHealingTab, watchOpening } from '../src/opening-watch.mjs';
+import { createSelfHealingTab, gridHasFreeTime, watchOpening } from '../src/opening-watch.mjs';
 import { submitWithCourtFallback } from '../src/launchd-runner.mjs';
 import { PreConfirmBookingError } from '../src/booking-submit.mjs';
 import { isTransientBrowserError, shouldRetry } from '../src/recurring-booking.mjs';
@@ -70,36 +70,70 @@ test('self-healing tab gives up when the browser itself disconnected', async () 
   await assert.rejects(tab.navigate(), /has been closed/);
 });
 
+function readyPage(overrides = {}) {
+  const page = fakePage();
+  page.waitForFunction = async () => true;
+  return Object.assign(page, overrides);
+}
+
 test('watchOpening survives the tab being closed at the opening instant (14 Nov failure)', async () => {
-  // First page: survives prewarm open, then dies on the opening reload.
-  const first = fakePage();
+  // The prewarm tab dies on the opening reload; a replacement tab must take over.
+  const first = readyPage();
   let gotoCount = 0;
   first.goto = async (target) => {
     gotoCount += 1;
     if (gotoCount >= 2) { first.closed = true; throw new Error(CLOSED); }
     first.currentUrl = target;
   };
-  const replacement = fakePage({ ready: false });
-  let readyChecks = 0;
-  replacement.evaluate = async () => { readyChecks += 1; return readyChecks >= 2; };
+  const replacement = readyPage();
   const context = fakeContext([first, replacement]);
   let clock = 0;
-  const openAtMs = 60_000;
+  const scans = [];
   const result = await watchOpening({
-    context,
-    date: '2026-11-21',
-    openAtMs,
-    pollMs: 1_000,
-    timeoutMs: 60_000,
-    leadMs: 15_000,
-    now: () => clock,
-    sleep: async (ms) => { clock += ms; },
-  }).catch((error) => error);
-  // The grid scan itself needs a real DOM; reaching it proves the poll became ready
-  // on the replacement tab instead of aborting with "Target page ... closed".
-  assert.ok(!(result instanceof Error) || !isTargetClosedError(result), String(result?.message));
-  assert.ok(context.created.includes(replacement));
-  assert.ok(replacement.gotos >= 1);
+    context, date: '2026-11-21', start: '08:00', end: '10:00', openAtMs: 60_000,
+    pollMs: 1_000, timeoutMs: 60_000, leadMs: 15_000,
+    isOpen: () => true,
+    scan: async (page) => { scans.push(page); return { gridRoot: 'root', grid: [] }; },
+    now: () => clock, sleep: async (ms) => { clock += ms; },
+  });
+  assert.equal(result.poll.ready, true);
+  assert.equal(result.page, replacement);
+  assert.deepEqual(scans, [replacement]);
+});
+
+test('watchOpening reloads a grid that still shows the day before it opened', async () => {
+  const page = readyPage();
+  const context = fakeContext([page]);
+  let clock = 59_000;
+  let scans = 0;
+  const marks = [];
+  const result = await watchOpening({
+    context, date: '2026-11-21', start: '08:00', end: '10:00', openAtMs: 60_000,
+    timeoutMs: 60_000, leadMs: 0,
+    isOpen: () => scans >= 3,
+    scan: async () => { scans += 1; return { gridRoot: 'root', grid: [] }; },
+    mark: (label) => marks.push(label),
+    now: () => clock, sleep: async (ms) => { clock += ms; },
+  });
+  assert.equal(scans, 3);
+  assert.equal(result.poll.attempts, 3);
+  assert.equal(marks.filter((label) => label === 'not_open_yet').length, 2);
+});
+
+test('watchOpening stops reloading a closed-looking grid after the grace period', async () => {
+  const page = readyPage();
+  const context = fakeContext([page]);
+  let clock = 60_000;
+  let scans = 0;
+  const result = await watchOpening({
+    context, date: '2026-11-21', start: '08:00', end: '10:00', openAtMs: 60_000,
+    timeoutMs: 120_000, leadMs: 0, openGraceMs: 1_000,
+    isOpen: () => false,
+    scan: async () => { scans += 1; clock += 400; return { gridRoot: 'root', grid: [] }; },
+    now: () => clock, sleep: async (ms) => { clock += ms; },
+  });
+  assert.equal(result.poll.ready, true);
+  assert.ok(scans >= 2 && scans <= 4, String(scans));
 });
 
 const job = {
@@ -183,4 +217,10 @@ test('recurring LaunchAgents keep the Mac awake through the opening', () => {
   assert.match(plist, /<integer>6<\/integer><key>Hour<\/key><integer>6<\/integer><key>Minute<\/key><integer>57<\/integer>/);
   assert.match(plist, /<integer>0<\/integer><key>Hour<\/key>/);
   assert.match(plist, /weekend-booking\.mjs/);
+});
+
+test('a flexible day counts as open once any court has free time before the peak', () => {
+  const grid = [{ court: 'Court 1', slots: [{ start: '12:30', end: '13:00', available: true }, { start: '13:00', end: '13:30', available: true }] }];
+  assert.equal(gridHasFreeTime(grid, { start: '08:00', end: '13:00' }), true);
+  assert.equal(gridHasFreeTime(grid, { start: '08:00', end: '12:30' }), false);
 });

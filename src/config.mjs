@@ -14,21 +14,3 @@ export function bookingUrl(date, baseUrl = DEFAULT_BASE_URL) {
   return `${baseUrl}/${date}`;
 }
 
-export function validateJob(job) {
-  const required = ['date', 'start', 'end', 'bookingType', 'participants'];
-  for (const key of required) {
-    if (job[key] === undefined || job[key] === null || job[key] === '') {
-      throw new Error(`Missing job field: ${key}`);
-    }
-  }
-  if (!Array.isArray(job.participants) || job.participants.length < 2) {
-    throw new Error('At least two named participants are required for Singles.');
-  }
-  if (typeof job.allowUnpaidHold !== 'boolean') {
-    throw new Error('allowUnpaidHold must be explicitly true or false.');
-  }
-  if (typeof job.submit !== 'boolean') {
-    throw new Error('submit must be explicitly true or false.');
-  }
-  return job;
-}

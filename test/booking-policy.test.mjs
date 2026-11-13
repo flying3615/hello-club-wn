@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import {
   chooseCourt,
   orderedAvailableCourts,
-  evaluatePaymentPage,
-  verifyRemoteOutcome,
 } from '../src/booking-policy.mjs';
 
 const target = { start: '22:00', end: '23:00' };
@@ -57,27 +55,3 @@ test('keeps every available court in preference order for rendered-slot prefligh
   assert.deepEqual(result, ['Court 4', 'Court 6']);
 });
 
-test('payment page uses CANCEL to leave a verified unpaid hold', () => {
-  assert.deepEqual(
-    evaluatePaymentPage({ paymentRequired: true, allowUnpaidHold: true }),
-    { action: 'click_payment_cancel_then_verify_hold', paid: false },
-  );
-});
-
-test('payment page never authorizes payment by default', () => {
-  assert.deepEqual(
-    evaluatePaymentPage({ paymentRequired: true, allowUnpaidHold: false }),
-    { action: 'stop_before_payment', paid: false },
-  );
-});
-
-test('unpaid hold is success only after remote read-back', () => {
-  assert.equal(
-    verifyRemoteOutcome({ pendingHold: true, paid: false }).status,
-    'unpaid_hold_verified',
-  );
-  assert.equal(
-    verifyRemoteOutcome({ pendingHold: false, paid: false }).status,
-    'unknown',
-  );
-});

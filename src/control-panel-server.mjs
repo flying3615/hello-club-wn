@@ -11,7 +11,7 @@ import { createRemoteBookingCache, partitionRemoteBookings, readRemoteBookings }
 import { nextRecurringRun } from './weekend-schedule.mjs';
 import { RECURRING_TASKS } from './recurring-tasks.mjs';
 import { openingInstantForTargetDate } from './opening-window.mjs';
-import { createLoginCache } from './login-probe.mjs';
+import { createLoginCache, probeAllowed } from './login-probe.mjs';
 import { DEFAULT_PARTICIPANTS } from './recurring-booking.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -239,7 +239,11 @@ export async function buildStatus() {
     paymentStatus: successfulRun.paymentStatus || null,
     verifiedAt: successfulRun.finishedAt || successfulRun.timestamp,
   } : null;
-  const remote = await remoteBookingCache.get({ freshAfter: Number.isFinite(successAt) ? successAt : null });
+  // Never open calendar tabs in the dedicated Chrome around the opening or during a run.
+  const remote = await remoteBookingCache.get({
+    freshAfter: Number.isFinite(successAt) ? successAt : null,
+    allowRefresh: probeAllowed({ now: nowDate, runnerActive: locks.length > 0 }),
+  });
   const now = nowDate.toISOString();
   const groupedBookings = partitionRemoteBookings(remote.bookings, now);
   const chromeReady = chrome === null ? cdp.reachable : chrome || cdp.reachable;

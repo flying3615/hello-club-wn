@@ -43,6 +43,20 @@ export function publicSegments(segments) {
     }));
 }
 
+const TIMELINE_LABELS = new Set(['open_at', 'started', 'prewarm_navigated', 'navigated', 'grid_scanned', 'not_open_yet', 'slot_clicked', 'confirm_clicked', 'post_confirm', 'verified', 'failed']);
+
+export function publicTimeline(timeline) {
+  if (!Array.isArray(timeline)) return undefined;
+  return timeline.slice(0, 80)
+    .filter((entry) => TIMELINE_LABELS.has(entry?.label) && typeof entry.at === 'string' && Number.isFinite(Date.parse(entry.at)))
+    .map((entry) => {
+      const safe = { label: entry.label, at: entry.at };
+      if (COURT.test(entry.court || '')) safe.court = entry.court;
+      if (HHMM.test(entry.start || '')) safe.start = entry.start;
+      return safe;
+    });
+}
+
 function publicAttempts(attempts) {
   if (!Array.isArray(attempts)) return typeof attempts === 'number' ? attempts : undefined;
   return attempts.slice(0, 40).map((item) => ({
@@ -53,7 +67,7 @@ function publicAttempts(attempts) {
 
 export function publicRun(run) {
   const safe = pick(run, [
-    'status', 'mode', 'jobId', 'taskId', 'timestamp', 'startedAt', 'firstGridAt', 'finishedAt', 'attempts', 'selection', 'paymentStatus', 'adjacent',
+    'status', 'mode', 'jobId', 'taskId', 'timestamp', 'startedAt', 'firstGridAt', 'finishedAt', 'attempts', 'selection', 'paymentStatus', 'adjacent', 'timeline',
   ]);
   if (!safe?.status || !safe.timestamp) return null;
   if (typeof run.errorCode === 'string') safe.errorCode = safeErrorCode(run.errorCode);
@@ -63,6 +77,7 @@ export function publicRun(run) {
     if (segments) safe.selection.segments = segments;
   }
   if (safe.attempts !== undefined) safe.attempts = publicAttempts(safe.attempts);
+  if (safe.timeline !== undefined) safe.timeline = publicTimeline(safe.timeline);
   if (run.adjacent && typeof run.adjacent === 'object') safe.adjacent = publicAdjacent(run.adjacent);
   return safe;
 }
@@ -80,7 +95,7 @@ export function publicAdjacent(adjacent) {
 }
 
 export function publicRecurringReport(report) {
-  const safe = pick(report, ['status', 'targetDate', 'court', 'paymentStatus', 'remoteBookingId', 'error', 'verifiedAt', 'adjacent', 'segments', 'tier', 'attempts']);
+  const safe = pick(report, ['status', 'targetDate', 'court', 'paymentStatus', 'remoteBookingId', 'error', 'verifiedAt', 'adjacent', 'segments', 'tier', 'attempts', 'timeline']);
   if (!safe?.status || !['success', 'failed'].includes(safe.status) || !/^\d{4}-\d{2}-\d{2}$/.test(safe.targetDate || '')) return null;
   if (safe.court !== undefined && !/^Court [1-6]$/.test(safe.court)) delete safe.court;
   if (safe.paymentStatus !== undefined && !['free', 'unpaid_hold', 'paid'].includes(safe.paymentStatus)) delete safe.paymentStatus;
@@ -94,6 +109,7 @@ export function publicRecurringReport(report) {
   }
   if (safe.tier !== undefined && !['full_window', 'longest_from_start', 'later_start'].includes(safe.tier)) delete safe.tier;
   if (safe.attempts !== undefined) safe.attempts = publicAttempts(safe.attempts);
+  if (safe.timeline !== undefined) safe.timeline = publicTimeline(safe.timeline);
   if (safe.job === undefined && report?.job && typeof report.job === 'object') {
     const window = pick(report.job, ['start', 'end']);
     if (HHMM.test(window?.start || '') && HHMM.test(window?.end || '')) safe.window = window;
@@ -266,10 +282,13 @@ export async function readJsonLines(directory, mapper, { limit = 50 } = {}) {
     .map((entry) => entry.name)
     .sort()
     .reverse();
+  // Files are named by date, so the newest files hold the newest entries: stop reading
+  // once enough entries are collected instead of reading the whole history every time.
   const values = [];
   for (const file of files) {
     const content = await fs.readFile(path.join(directory, file), 'utf8');
     values.push(...parseJsonLines(content, mapper));
+    if (values.length >= limit) break;
   }
   return values.sort((a, b) => String(b.timestamp || b.verifiedAt).localeCompare(String(a.timestamp || a.verifiedAt))).slice(0, limit);
 }

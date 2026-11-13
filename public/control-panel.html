@@ -387,6 +387,15 @@
       return `${window.start}–${window.end} 所有场地都已经被订满了。`;
     }
 
+    // "开盘后 2.4 秒点下确认" from the run's phase timestamps.
+    function openingSpeed(timeline) {
+      if (!Array.isArray(timeline)) return '';
+      const open = Date.parse(timeline.find((e) => e.label === 'open_at')?.at);
+      const confirm = Date.parse(timeline.find((e) => e.label === 'confirm_clicked')?.at);
+      if (!Number.isFinite(open) || !Number.isFinite(confirm)) return '';
+      return `开盘后 ${((confirm - open) / 1000).toFixed(1)} 秒点下确认`;
+    }
+
     function renderResult(status) {
       const task = mainTask(status);
       const report = task?.lastReport;
@@ -401,11 +410,12 @@
       const segments = report.segments || (report.court ? [{ court: report.court, start: window.start, end: window.end, paymentStatus: report.paymentStatus }] : []);
       const attempts = Array.isArray(report.attempts) ? report.attempts : [];
       let top, copy = '', diagnosis = '';
+      const speed = openingSpeed(report.timeline);
       if (report.status === 'success') {
         const minutes = minutesBetween(segments);
         const tierText = { full_window: segments.length > 1 ? '两个场地拼满了想订的时间' : '一个场地订满了想订的时间', longest_from_start: `没能订满，订到了从 ${window.start} 起最长的时间`, later_start: `${window.start} 全满，订了之后最长的时间` }[report.tier] || '';
         top = `<span class="verdict ok">订到了 ${esc(hoursText(minutes))}</span><span class="date">${esc(dayLabel(report.targetDate))}</span>`;
-        copy = tierText;
+        copy = [tierText, speed].filter(Boolean).join('，');
       } else {
         const ex = report.explanation;
         top = `<span class="verdict bad">没有订到</span><span class="date">${esc(dayLabel(report.targetDate))}</span>`;

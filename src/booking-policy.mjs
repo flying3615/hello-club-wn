@@ -56,18 +56,4 @@ export function chooseCourt(availability, target, courtOrder = DEFAULT_COURT_ORD
   throw error;
 }
 
-export function evaluatePaymentPage({ paymentRequired, allowUnpaidHold }) {
-  if (!paymentRequired) return { action: 'confirm_free_booking', paid: false };
-  if (allowUnpaidHold) {
-    return { action: 'click_payment_cancel_then_verify_hold', paid: false };
-  }
-  return { action: 'stop_before_payment', paid: false };
-}
-
-export function verifyRemoteOutcome({ pendingHold = false, paid = false }) {
-  if (paid) return { status: 'paid_booking_verified' };
-  if (pendingHold) return { status: 'unpaid_hold_verified' };
-  return { status: 'unknown' };
-}
-
 export { DEFAULT_COURT_ORDER, hasCompleteInterval };

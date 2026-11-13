@@ -66,33 +66,4 @@ export async function waitUntilOpeningWindow({
   return { startedAtMs, openAtMs };
 }
 
-export async function pollUntilReady({
-  isReady,
-  refresh,
-  pollMs = DEFAULT_POLL_MS,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-  now = () => Date.now(),
-  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-} = {}) {
-  if (typeof isReady !== 'function') throw new Error('isReady must be a function.');
-  if (typeof refresh !== 'function') throw new Error('refresh must be a function.');
-  const { pollMs: intervalMs } = normalizePollOptions({ pollMs, timeoutMs, leadMs: 0 });
-  const startedAtMs = now();
-  const deadlineMs = startedAtMs + timeoutMs;
-  let attempts = 0;
-
-  while (true) {
-    attempts += 1;
-    if (await isReady()) {
-      return { ready: true, timedOut: false, attempts, startedAtMs, finishedAtMs: now() };
-    }
-    const remainingMs = deadlineMs - now();
-    if (remainingMs <= 0) {
-      return { ready: false, timedOut: true, attempts, startedAtMs, finishedAtMs: now() };
-    }
-    await refresh();
-    await sleep(Math.min(intervalMs, remainingMs));
-  }
-}
-
 export { DEFAULT_POLL_MS, DEFAULT_TIMEOUT_MS, DEFAULT_LEAD_MS };

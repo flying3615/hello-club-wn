@@ -4,7 +4,7 @@ import { validateBookingJob, validateLoopbackCdpEndpoint } from '../src/launchd-
 import { openingInstantForTargetDate } from '../src/opening-window.mjs';
 import { boundedTimeoutMs } from '../src/launchd-runner.mjs';
 import { canReplaceDispatchMarker, dispatchAfterPrewarm, dispatchDecision, idleDelayMs, isStaleRunningMarker, prewarmDispatchDecision } from '../src/launchd-dispatcher.mjs';
-import { buildLaunchAgentPlist, buildPersistentDispatcherPlist } from '../src/launchd-plist.mjs';
+import { buildPersistentDispatcherPlist } from '../src/launchd-plist.mjs';
 import { buildRtcWakePlan } from '../src/rtc-wake.mjs';
 
 const validJob = () => ({
@@ -150,20 +150,6 @@ test('builds a persistent Aqua dispatcher without KeepAlive loops', () => {
   assert.match(plist, /<key>LimitLoadToSessionType<\/key>\s*<string>Aqua<\/string>/);
   assert.match(plist, /launchd-dispatcher\.mjs/);
   assert.match(plist, /<key>KeepAlive<\/key>\s*<false\/>/);
-});
-
-test('builds a logged-in-user launch agent without KeepAlive', () => {
-  const plist = buildLaunchAgentPlist({
-    label: 'com.hello-club.booking.monday-evening-watch',
-    nodePath: '/Users/yufei/.local/bin/node',
-    projectDir: '/Users/yufei/project',
-    jobPath: '/Users/yufei/project/state/jobs/monday-evening-watch.json',
-    runAt: '2026-10-25T06:57:00+13:00',
-  });
-  assert.match(plist, /<key>LimitLoadToSessionType<\/key>\s*<string>Aqua<\/string>/);
-  assert.match(plist, /<key>KeepAlive<\/key>\s*<false\/>/);
-  assert.match(plist, /launchd-runner\.mjs/);
-  assert.doesNotMatch(plist, /password|cookie|token|card/i);
 });
 
 test('derives a single safe RTC wake before the exact prewarm trigger', () => {

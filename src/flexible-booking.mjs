@@ -1,4 +1,5 @@
-import { submitBooking, verifySubmittedBooking } from './booking-submit.mjs';
+import { submitBooking, verifySubmittedBookings } from './booking-submit.mjs';
+import { readRemoteBookings } from './remote-bookings.mjs';
 import { reloadTargetGrid } from './opening-watch.mjs';
 import { maskGrid, planContinuation, planFlexibleBooking, segmentsOverlap, toMinutes } from './flexible-plan.mjs';
 import { normalizedParticipantSet } from './booking-intent.mjs';
@@ -69,9 +70,11 @@ export async function submitFlexiblePlan({
   latestEnd = flexibleLatestEnd(job),
   maxSegments = FLEXIBLE_MAX_SEGMENTS,
   submit = submitBooking,
-  verify = verifySubmittedBooking,
+  read = readRemoteBookings,
+  verifyAll = verifySubmittedBookings,
   reload = reloadTargetGrid,
   log = () => {},
+  mark = () => {},
 }) {
   const page = opening.page;
   let { grid, gridRoot } = opening;
@@ -111,7 +114,7 @@ export async function submitFlexiblePlan({
     const segmentJob = { ...job, start: next.start, end: next.end };
     try {
       const outcome = await submit({
-        context, page, job: segmentJob, grid, gridRoot, court: next.court, priorBookings, deferVerification: true,
+        context, page, job: segmentJob, grid, gridRoot, court: next.court, priorBookings, deferVerification: true, mark, read,
         assertDeadline: () => { if (deadlinePassed(deadline, now)) throw new Error('latest start deadline has passed'); },
       });
       booked.push({ segment: next, job: segmentJob, outcome });
@@ -142,16 +145,15 @@ export async function submitFlexiblePlan({
 
   if (!booked.length) throw lastError || new Error('Flexible booking attempts exhausted');
 
+  // One remote read verifies every submitted booking.
+  const results = await verifyAll({ pendings: booked.map((item) => item.outcome.pending), read });
   const segments = [];
   const unverified = [];
-  for (const item of booked) {
-    try {
-      const result = await verify({ pending: item.outcome.pending });
-      segments.push({ ...item.segment, paymentStatus: result.paymentStatus, remoteBookingId: result.remoteBookingId || null });
-    } catch (error) {
-      unverified.push({ ...item.segment, error: String(error?.message || error).slice(0, 200) });
-    }
-  }
+  booked.forEach((item, index) => {
+    const result = results[index];
+    if (result?.ok) segments.push({ ...item.segment, paymentStatus: result.paymentStatus, remoteBookingId: result.remoteBookingId || null });
+    else unverified.push({ ...item.segment, error: String(result?.error || 'unverified').slice(0, 200) });
+  });
   return {
     tier,
     segments,

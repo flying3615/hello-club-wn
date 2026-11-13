@@ -2,16 +2,16 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { reconcileIntentFence } from './intent-fence.mjs';
-import { readRemoteBookings } from './remote-bookings.mjs';
+import { remoteBookingReaderForDate } from './remote-bookings.mjs';
 import { bookingIntentKey } from './booking-intent.mjs';
 import { connectExistingChrome, openBookingPage } from './session.mjs';
 import { scanBookingGrid } from './booking-grid.mjs';
 import { chooseCourt, orderedAvailableCourts } from './booking-policy.mjs';
-import { reloadTargetGrid, watchOpening } from './opening-watch.mjs';
+import { gridHasFreeTime, reloadTargetGrid, watchOpening } from './opening-watch.mjs';
 import { preflightRenderedBookingSlots, submitBooking } from './booking-submit.mjs';
 import { verifiedBookingRecord } from './booking-execution.mjs';
 import { DEFAULT_CDP_ENDPOINT, validateBookingJob, validateLoopbackCdpEndpoint } from './launchd-job.mjs';
-import { existingFlexibleBookings, submitFlexiblePlan } from './flexible-booking.mjs';
+import { existingFlexibleBookings, flexibleLatestEnd, submitFlexiblePlan } from './flexible-booking.mjs';
 
 const PROJECT_DIR = path.resolve(new URL('..', import.meta.url).pathname);
 const STATE_DIR = path.join(PROJECT_DIR, 'state', 'launchd');
@@ -25,7 +25,7 @@ function parseArgs(argv) {
 }
 
 function safeResult(result) {
-  const allowed = ['status', 'mode', 'jobId', 'timestamp', 'startedAt', 'firstGridAt', 'finishedAt', 'selection', 'attempts', 'errorCode', 'paymentStatus'];
+  const allowed = ['status', 'mode', 'jobId', 'timestamp', 'startedAt', 'firstGridAt', 'finishedAt', 'selection', 'attempts', 'errorCode', 'paymentStatus', 'remoteBookingId', 'timeline'];
   return Object.fromEntries(Object.entries(result).filter(([key]) => allowed.includes(key)));
 }
 
@@ -138,8 +138,16 @@ export async function waitForOpenSelection({
   job,
   now = () => Date.now(),
   watch = watchOpening,
+  mark = () => {},
 }) {
+  // A flexible job counts the day as open as soon as any court has free time in its
+  // search range; a fixed job needs its whole interval on one court.
+  const isOpen = job.flexible
+    ? (grid) => gridHasFreeTime(grid, { start: job.start, end: flexibleLatestEnd(job) })
+    : null;
   const result = await watch({
+    isOpen,
+    mark,
     context,
     date: job.date,
     start: job.start,
@@ -174,10 +182,12 @@ export async function submitWithCourtFallback({
   deadline,
   now = () => Date.now(),
   priorBookings = null,
+  read = undefined,
   submit = submitBooking,
   select = selectActionableCourt,
   reload = reloadTargetGrid,
   log = () => {},
+  mark = () => {},
 }) {
   const page = opening.page;
   let { grid, gridRoot } = opening;
@@ -197,7 +207,7 @@ export async function submitWithCourtFallback({
     assertDeadline(deadline, now());
     try {
       const outcome = await submit({
-        context, page, job, grid, gridRoot, court: selection.court, priorBookings,
+        context, page, job, grid, gridRoot, court: selection.court, priorBookings, mark, ...(read ? { read } : {}),
         assertDeadline: () => assertDeadline(deadline, now()),
       });
       return { outcome, selection, attempts: attempt };
@@ -214,7 +224,7 @@ export async function submitWithCourtFallback({
 
 const priorBookingSnapshots = new Map();
 
-async function priorBookingsBeforeOpening(job, { now, read = readRemoteBookings }) {
+async function priorBookingsBeforeOpening(job, { now, read }) {
   const key = bookingFingerprint(job);
   const cached = priorBookingSnapshots.get(key);
   if (cached) return cached;
@@ -230,12 +240,12 @@ async function priorBookingsBeforeOpening(job, { now, read = readRemoteBookings 
   }
 }
 
-async function runFlexibleExecute({ context, job, mode, startedAt, deadline, now }) {
+async function runFlexibleExecute({ context, job, mode, startedAt, deadline, now, mark = () => {}, read }) {
   const key = bookingFingerprint(job);
   // Before the opening this is the cached pre-opening snapshot; on a retry after the
   // opening (when an earlier attempt may already have booked part of the range) the
   // snapshot is gone and the remote calendar is read fresh.
-  const priorBookings = (await priorBookingsBeforeOpening(job, { now })) || await readRemoteBookings();
+  const priorBookings = (await priorBookingsBeforeOpening(job, { now, read })) || await read();
   const existing = await existingFlexibleBookings({ job, read: async () => priorBookings });
   if (existing.length) {
     const verifiedAt = new Date().toISOString();
@@ -245,14 +255,15 @@ async function runFlexibleExecute({ context, job, mode, startedAt, deadline, now
       paymentStatus: existing[0].paymentStatus,
     };
   }
-  const opening = await waitForOpenSelection({ context, job, now });
+  const opening = await waitForOpenSelection({ context, job, now, mark });
   assertDeadline(deadline, now());
   // From here a booking may be confirmed; a retry must re-read the remote calendar.
   priorBookingSnapshots.delete(key);
   const result = await submitFlexiblePlan({
-    context, opening, job, deadline, now, priorBookings,
+    context, opening, job, deadline, now, priorBookings, mark, read,
     log: (entry) => console.log(JSON.stringify({ ...entry, jobId: job.id, timestamp: new Date().toISOString() })),
   });
+  mark('verified');
   const verifiedAt = new Date().toISOString();
   for (const item of result.segments) {
     await appendBooking(verifiedBookingRecord({
@@ -265,7 +276,7 @@ async function runFlexibleExecute({ context, job, mode, startedAt, deadline, now
   }
   return {
     status: 'booking_verified', mode, jobId: job.id, timestamp: startedAt, startedAt,
-    firstGridAt: new Date().toISOString(), finishedAt: verifiedAt,
+    finishedAt: verifiedAt,
     selection: { status: 'candidate', court: result.segments[0].court, checked: [], tier: result.tier, segments: result.segments, incompleteReason: result.incompleteReason },
     paymentStatus: result.segments[0].paymentStatus,
   };
@@ -289,6 +300,13 @@ export async function runLaunchdJob({ jobFile, mode, cdpEndpoint = DEFAULT_CDP_E
 
   let releaseLock = async () => {};
   let browser = null;
+  // Every remote check in a run only needs the target date's month.
+  const read = remoteBookingReaderForDate(job.date);
+  // Phase timestamps for this attempt: how long each step took after the opening.
+  const timeline = [{ label: 'open_at', at: new Date(Date.parse(job.openAt)).toISOString() }];
+  const mark = (label, extra = {}) => { if (timeline.length < 80) timeline.push({ label, at: new Date().toISOString(), ...extra }); };
+  const firstGridAt = () => timeline.find((entry) => entry.label === 'grid_scanned')?.at;
+  mark('started');
   try {
     const connection = await connectExistingChrome(endpoint);
     browser = connection.browser;
@@ -311,7 +329,7 @@ export async function runLaunchdJob({ jobFile, mode, cdpEndpoint = DEFAULT_CDP_E
 
     if (mode === 'execute') {
       releaseLock = await acquireLock(job);
-      const reconciliation = await reconcileIntentFence({ job, read: readRemoteBookings });
+      const reconciliation = await reconcileIntentFence({ job, read });
       if (reconciliation.state === 'blocked') {
         throw new Error('Booking intent requires authenticated reconciliation before any new submission');
       }
@@ -329,21 +347,23 @@ export async function runLaunchdJob({ jobFile, mode, cdpEndpoint = DEFAULT_CDP_E
         };
       }
       if (job.flexible) {
-        return await runFlexibleExecute({ context, job, mode, startedAt, deadline, now });
+        return { ...await runFlexibleExecute({ context, job, mode, startedAt, deadline, now, mark, read }), firstGridAt: firstGridAt(), timeline };
       }
-      const priorBookings = await priorBookingsBeforeOpening(job, { now });
-      const opening = await waitForOpenSelection({ context, job, now });
+      const priorBookings = await priorBookingsBeforeOpening(job, { now, read });
+      const opening = await waitForOpenSelection({ context, job, now, mark });
       assertDeadline(deadline, now());
       const { outcome, selection } = await submitWithCourtFallback({
-        context, opening, job, deadline, now, priorBookings,
+        context, opening, job, deadline, now, priorBookings, mark, read,
         log: (entry) => console.log(JSON.stringify({ ...entry, jobId: job.id, timestamp: new Date().toISOString() })),
       });
       const verifiedAt = new Date().toISOString();
       await appendBooking(verifiedBookingRecord({ job, court: selection.court, paymentStatus: outcome.paymentStatus, verifiedAt }));
+      mark('verified');
       return {
         status: 'booking_verified', mode, jobId: job.id, timestamp: startedAt, startedAt,
-        firstGridAt: new Date().toISOString(), finishedAt: verifiedAt,
+        firstGridAt: firstGridAt(), finishedAt: verifiedAt,
         selection: summarizeSelection(selection), paymentStatus: outcome.paymentStatus,
+        remoteBookingId: outcome.remoteBookingId || null, timeline,
       };
     }
 
@@ -365,6 +385,11 @@ export async function runLaunchdJob({ jobFile, mode, cdpEndpoint = DEFAULT_CDP_E
       finishedAt: new Date().toISOString(), attempts: result.poll.attempts,
       selection: summarizeSelection(result.selection),
     };
+  } catch (error) {
+    // Keep the timeline of a failed attempt so the report shows where it stopped.
+    mark('failed', { error: String(error?.message || error).slice(0, 120) });
+    if (error && typeof error === 'object') error.timeline = timeline;
+    throw error;
   } finally {
     await releaseLock();
     // Over CDP this only disconnects; it never closes the user's Chrome.

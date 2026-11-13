@@ -118,10 +118,11 @@ function harness({ grids, submitBehaviour = () => {} }) {
         submitBehaviour({ court, start: segmentJob.start, end: segmentJob.end });
         return { court, paymentStatus: 'unpaid_hold', pending: { court, start: segmentJob.start } };
       },
-      verify: async ({ pending }) => {
+      read: async () => [],
+      verifyAll: async ({ pendings }) => pendings.map((pending) => {
         calls.push(`verify ${pending.court} ${pending.start}`);
-        return { paymentStatus: 'unpaid_hold', remoteBookingId: `id-${pending.court}` };
-      },
+        return { ok: true, paymentStatus: 'unpaid_hold', remoteBookingId: `id-${pending.court}` };
+      }),
       reload: async () => {
         gridIndex = Math.min(gridIndex + 1, grids.length - 1);
         calls.push('reload');
@@ -192,4 +193,33 @@ test('an unresolved fence from an earlier attempt blocks new submissions', async
     listFences: async () => [{ segment: { date: job.date, start: '08:00', end: '09:00' }, phase: 'confirmation_unknown' }],
     reconcile: async () => ({ state: 'blocked' }),
   }), /reconciliation/);
+});
+
+test('verifies several bookings with one remote read per attempt', async () => {
+  const { verifySubmittedBookings } = await import('../src/booking-submit.mjs');
+  const base = { bookingType: 'Stadium Pass - Singles', participants: ['Yufei Liu', 'Zijia Liu'], date: '2026-11-21' };
+  const pendings = [
+    { job: { ...base, start: '08:00', end: '09:00' }, court: 'Court 4', paymentStatus: 'free', priorBookingIds: new Set(), remoteBookingId: null },
+    { job: { ...base, start: '09:00', end: '10:00' }, court: 'Court 5', paymentStatus: 'free', priorBookingIds: new Set(), remoteBookingId: null },
+  ];
+  const record = (id, court, start, end) => ({ id, date: '2026-11-21', start, end, court, bookingType: base.bookingType, participants: base.participants, paymentStatus: 'free' });
+  let reads = 0;
+  const cleared = [];
+  const results = await verifySubmittedBookings({
+    pendings,
+    read: async () => { reads += 1; return reads === 1 ? [record('a', 'Court 4', '08:00', '09:00')] : [record('a', 'Court 4', '08:00', '09:00'), record('b', 'Court 5', '09:00', '10:00')]; },
+    clearFence: async ({ job }) => cleared.push(job.start),
+    sleep: async () => {},
+  });
+  assert.equal(reads, 2);
+  assert.deepEqual(results.map((r) => r.remoteBookingId), ['a', 'b']);
+  assert.deepEqual(cleared, ['08:00', '09:00']);
+});
+
+test('a remote reader for one date only loads that month', async () => {
+  const { remoteBookingReaderForDate, monthAnchorFor } = await import('../src/remote-bookings.mjs');
+  assert.equal(monthAnchorFor('2026-11-21'), '2026-11-01');
+  const seen = [];
+  await remoteBookingReaderForDate('2026-12-05', async (options) => { seen.push(options.months); return []; })();
+  assert.deepEqual(seen, [['2026-12-01']]);
 });

@@ -8,7 +8,6 @@
     "run": "node src/runner.mjs",
     "watch:opening": "node src/opening-watch.mjs",
     "run:launchd": "node src/launchd-runner.mjs",
-    "create:launchd": "node src/create-launchd-agent.mjs",
     "dispatch:launchd": "node src/launchd-dispatcher.mjs",
     "create:dispatcher": "node src/create-launchd-dispatcher.mjs",
     "plan:wake": "node src/rtc-wake.mjs",

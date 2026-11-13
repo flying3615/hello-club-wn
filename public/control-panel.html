@@ -140,21 +140,22 @@
     .court .issues ul { margin: 4px 0 0; padding-left: 18px; }
     .court .issues small { display: block; opacity: .8; }
     .status { margin-top: 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 16px; }
-    .status ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 18px; }
-    .status li { display: grid; grid-template-columns: 10px 1fr; gap: 0 9px; align-items: baseline; font-size: 13px; line-height: 1.35; }
-    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--soft); transform: translateY(-1px); }
+    .status ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 22px; }
+    .status li { display: flex; align-items: center; gap: 7px; font-size: 13px; white-space: nowrap; }
+    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--soft); }
     .status .ok .dot { background: var(--ok); }
     .status .warn .dot { background: var(--warn); }
     .status .bad .dot { background: #c23a3a; }
     .status .label { color: var(--soft); }
-    .status .value { grid-column: 2; font-weight: 600; }
+    .status .value { font-weight: 600; }
     .status .bad .value { color: #c23a3a; }
     .task { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 16px 18px; border-top: 1px solid var(--rule); }
     .task:first-child { border-top: 0; }
     .task .what { font-size: 16px; font-weight: 650; }
     .task .how { grid-column: 1; color: var(--soft); font-size: 14px; }
-    .task .next { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-size: 14px; color: var(--soft); align-self: center; }
-    .task .next b { display: block; color: var(--ink); font-size: 15px; }
+    .task .next { grid-column: 2; grid-row: 1; text-align: right; font-size: 14px; color: var(--soft); align-self: center; }
+    .task .next b { color: var(--ink); font-size: 15px; }
+    .task .tag { font-size: 12px; font-weight: 500; vertical-align: 2px; margin-left: 6px; color: var(--soft); }
     .secondary { margin-top: 36px; }
     .secondary details.more { background: transparent; }
     .secondary details.more > summary { font-weight: 500; color: var(--soft); }
@@ -194,10 +195,10 @@
     @media (max-width: 820px) {
       .court { padding: 24px 22px; }
       .court .issues { max-width: none; }
-      .status ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .status ul { gap: 8px 16px; }
       .task { grid-template-columns: 1fr; }
       .task .next { grid-column: 1; grid-row: auto; text-align: left; }
-      .task .next b { display: inline; margin-left: 6px; }
+
       .court::before { background: none; }
       .split { grid-template-columns: 1fr; }
     }
@@ -216,7 +217,7 @@
   <main class="page">
     <div class="topbar">
       <h1>羽毛球场预约<span class="venue">Wellington North Badminton Stadium</span></h1>
-      <div class="refresh"><span id="updated">正在读取状态…</span><button class="plain" id="refresh" type="button">刷新</button></div>
+      <div class="refresh"><span id="updated">读取中…</span><button class="plain" id="refresh" type="button">刷新</button></div>
     </div>
 
     <section class="court" id="hero" aria-live="polite">
@@ -232,12 +233,12 @@
     </section>
 
     <section class="block" aria-labelledby="tasks-title">
-      <div class="block-head"><h2 id="tasks-title">周期开抢任务</h2><span class="aside">每次都订 7 天后的同一天</span></div>
+      <div class="block-head"><h2 id="tasks-title">周期任务</h2><span class="aside">订 7 天后</span></div>
       <div class="panel" id="tasks"></div>
     </section>
 
     <section class="block" aria-labelledby="upcoming-title">
-      <div class="block-head"><h2 id="upcoming-title">即将到来的预约</h2><span class="aside" id="upcoming-aside"></span></div>
+      <div class="block-head"><h2 id="upcoming-title">即将到来</h2></div>
       <div class="panel" id="upcoming"></div>
     </section>
 
@@ -251,7 +252,7 @@
         <div id="past"></div>
       </details>
       <details class="more">
-        <summary>运行记录 <span>最近 24 条</span></summary>
+        <summary>运行记录</summary>
         <div id="activity"></div>
       </details>
     </div>
@@ -332,53 +333,39 @@
     function renderStatus(status) {
       const items = [];
       const chrome = status.processes?.chrome;
-      items.push(chrome?.cdpReachable ? ['ok', '专用 Chrome', '已连接'] : ['bad', '专用 Chrome', '没有连接']);
-      if (!status.login) {
-        items.push(['warn', 'Hello Club 登录', '面板服务是旧版本，重启后才会检查']);
-      }
-      const login = status.login || { state: 'stale_server' };
-      const checked = login.checkedAt ? `，${clock(login.checkedAt)} 检查` : '';
-      if (status.login) items.push(login.state === 'signed_in' ? ['ok', 'Hello Club 登录', `已登录${checked}`]
-        : login.state === 'signed_out' ? ['bad', 'Hello Club 登录', `没有登录${checked}`]
-        : ['warn', 'Hello Club 登录', chrome?.cdpReachable ? (login.checkedAt ? `无法确认${checked}` : '还没检查') : 'Chrome 未连接，无法检查']);
+      items.push(chrome?.cdpReachable ? ['ok', 'Chrome', '已连接'] : ['bad', 'Chrome', '未连接']);
+      const login = status.login;
+      items.push(!login ? ['warn', '登录', '需重启面板']
+        : login.state === 'signed_in' ? ['ok', '登录', '已登录']
+        : login.state === 'signed_out' ? ['bad', '登录', '未登录']
+        : ['warn', '登录', '未知']);
       const sync = status.remoteSync || {};
-      items.push(sync.state === 'fresh' ? ['ok', 'Hello Club 日历', `${stamp(sync.syncedAt)} 同步`]
-        : sync.state === 'stale' ? ['warn', 'Hello Club 日历', `用的是 ${stamp(sync.syncedAt)} 的缓存`]
-        : ['bad', 'Hello Club 日历', '读不到']);
+      items.push(sync.state === 'fresh' ? ['ok', '日历', `${clock(sync.syncedAt)} 同步`]
+        : sync.state === 'stale' ? ['warn', '日历', '缓存']
+        : ['bad', '日历', '读不到']);
       const wake = status.wake;
-      items.push(!wake?.available ? ['warn', 'Mac 定时唤醒', '读不到设置']
-        : wake.repeating ? ['ok', 'Mac 定时唤醒', `每周 ${wake.repeating.time}`]
-        : ['bad', 'Mac 定时唤醒', '没有设置']);
+      items.push(!wake?.available ? ['warn', '唤醒', '未知'] : wake.repeating ? ['ok', '唤醒', wake.repeating.time] : ['bad', '唤醒', '未设置']);
       for (const task of status.recurring?.tasks || []) {
-        const label = `${task.label}任务`;
-        if (!task.configured) items.push(['bad', label, '没有加载']);
-        else if (task.loadedRunTime && task.loadedRunTime !== task.expectedRunTime) items.push(['warn', label, `旧设置，${task.loadedRunTime} 启动`]);
-        else items.push([task.keepsAwake === false ? 'warn' : 'ok', label, `${task.loadedRunTime || task.expectedRunTime} 启动${task.keepsAwake === false ? '，可能睡眠' : '，防睡眠'}`]);
+        const stale = (task.loadedRunTime && task.loadedRunTime !== task.expectedRunTime) || task.keepsAwake === false;
+        items.push(!task.configured ? ['bad', task.label, '未加载'] : stale ? ['warn', task.label, '需重新加载'] : ['ok', task.label, task.expectedRunTime]);
       }
-      const runner = status.processes?.runner;
-      items.push(runner?.state === 'running' ? ['ok', '预约程序', '正在运行'] : ['idle', '预约程序', '空闲']);
-      const dispatcher = status.processes?.dispatcher;
-      const dispatcherOk = dispatcher?.configured && ['running', 'not running'].includes(dispatcher.state);
-      items.push(dispatcherOk ? ['ok', '单次任务调度器', dispatcher.state === 'running' ? '检查中' : '待命'] : ['warn', '单次任务调度器', '没有加载']);
+      items.push(status.processes?.runner?.state === 'running' ? ['ok', '程序', '运行中'] : ['idle', '程序', '空闲']);
       $('#status-strip').innerHTML = items.map(([kind, label, value]) => `<li class="${kind}"><span class="dot" aria-hidden="true"></span><span class="label">${esc(label)}</span><span class="value">${esc(value)}</span></li>`).join('');
     }
 
     // Shown only when something would stop the next opening from running.
     function renderIssues(status, task) {
       const issues = [];
-      if (!status.processes?.chrome?.cdpReachable) issues.push({ text: '专用 Chrome 没有打开', hint: '打开专用 Chrome，并确认已登录 Hello Club' });
-      else if (status.login?.state === 'signed_out') issues.push({ text: 'Hello Club 没有登录', hint: '在专用 Chrome 里手动登录 Hello Club' });
+      if (!status.processes?.chrome?.cdpReachable) issues.push('Chrome 未连接');
+      else if (status.login?.state === 'signed_out') issues.push('Hello Club 未登录');
       const wake = status.wake;
-      if (wake?.available && !wake.repeating) issues.push({ text: 'Mac 没有设置定时唤醒', hint: 'sudo pmset repeat wakeorpoweron MSU 06:56:00' });
-      else if (wake?.repeating && task?.expectedRunTime && wake.repeating.time >= task.expectedRunTime) issues.push({ text: `唤醒时间 ${wake.repeating.time} 晚于启动时间 ${task.expectedRunTime}`, hint: '把唤醒改到启动前' });
-      if (task) {
-        if (!task.configured) issues.push({ text: `${task.label}任务没有加载`, hint: '按 README 用 launchctl bootstrap 加载' });
-        else if (task.loadedRunTime && task.loadedRunTime !== task.expectedRunTime) issues.push({ text: `${task.label}任务还是旧设置（${task.loadedRunTime} 启动）`, hint: '重新加载定时任务' });
-        else if (task.keepsAwake === false) issues.push({ text: `${task.label}任务运行时可能会睡眠`, hint: '重新加载定时任务' });
-      }
+      if (wake?.available && !wake.repeating) issues.push('Mac 唤醒未设置');
+      else if (wake?.repeating && task?.expectedRunTime && wake.repeating.time >= task.expectedRunTime) issues.push(`唤醒 ${wake.repeating.time} 晚于启动 ${task.expectedRunTime}`);
+      if (task && !task.configured) issues.push(`${task.label}任务未加载`);
+      else if (task && ((task.loadedRunTime && task.loadedRunTime !== task.expectedRunTime) || task.keepsAwake === false)) issues.push(`${task.label}任务需重新加载`);
       const el = $('#issues');
       el.hidden = !issues.length;
-      el.innerHTML = issues.length ? `<strong>开抢前需要处理</strong><ul>${issues.map((i) => `<li>${esc(i.text)}<small>${esc(i.hint)}</small></li>`).join('')}</ul>` : '';
+      el.innerHTML = issues.length ? `<strong>需处理</strong><ul>${issues.map((text) => `<li>${esc(text)}</li>`).join('')}</ul>` : '';
     }
 
     function lanesHtml({ window, segments = [], free = [], flexible }) {
@@ -449,18 +436,16 @@
 
     function renderBookings(status) {
       const sync = status.remoteSync || {};
-      const syncText = sync.state === 'unavailable' || !sync.syncedAt ? '读不到 Hello Club' : `${sync.state === 'fresh' ? '同步于' : '缓存于'} ${stamp(sync.syncedAt)}`;
       const upcoming = status.bookings?.upcoming || [];
       const past = status.bookings?.past || [];
-      $('#upcoming-aside').textContent = syncText;
       $('#past-aside').textContent = `${past.length} 条`;
       if (sync.state === 'unavailable') {
-        $('#upcoming').innerHTML = '<div class="empty">现在读不到 Hello Club 日历。只有远端日历确认过的预约才会显示在这里。</div>';
-        $('#past').innerHTML = '<div class="empty">读不到 Hello Club 日历。</div>';
+        $('#upcoming').innerHTML = '<div class="empty">读不到 Hello Club 日历</div>';
+        $('#past').innerHTML = '<div class="empty">读不到 Hello Club 日历</div>';
         return;
       }
-      $('#upcoming').innerHTML = upcoming.length ? bookingList(upcoming) : '<div class="empty">Hello Club 上没有即将到来的预约。</div>';
-      $('#past').innerHTML = past.length ? bookingList(past) : '<div class="empty">没有历史预约。</div>';
+      $('#upcoming').innerHTML = upcoming.length ? bookingList(upcoming) : '<div class="empty">暂无预约</div>';
+      $('#past').innerHTML = past.length ? bookingList(past) : '<div class="empty">暂无</div>';
     }
 
     function renderTasks(status) {
@@ -469,15 +454,10 @@
       const job = status.activeJob;
       const rows = tasks.map((task) => {
         const days = (task.weekdays || []).map((d) => WEEKDAY_ZH[d] || d).join('、');
-        const how = task.flexible
-          ? '优先一个场地订满；不行就两个场地拼；再不行订能连上的最长时间'
-          : '按场地优先级找一个完整的场地';
-        return `<div class="task"><div class="what">每${esc(days)} 07:00 开抢，订 ${esc(task.window.start)}–${esc(task.window.end)}</div><div class="how">${esc(how)}</div><div class="next">下次开抢<b>${task.next?.openAt ? `${esc(dayLabel(ymdOf(task.next.openAt)))} ${esc(clock(task.next.openAt))}` : '—'}</b></div></div>`;
+        return `<div class="task"><div class="what">${esc(days)} ${esc(task.window.start)}–${esc(task.window.end)}${task.flexible ? ' <span class="tag">可拼场</span>' : ''}</div><div class="next">下次 <b>${task.next?.openAt ? `${esc(dayLabel(ymdOf(task.next.openAt)))} ${esc(clock(task.next.openAt))}` : '—'}</b></div></div>`;
       });
-      if (job) {
-        rows.push(`<div class="task"><div class="what">单次：订 ${esc(dayLabel(job.date))} ${esc(job.start)}–${esc(job.end)}</div><div class="how">只运行一次</div><div class="next">开抢<b>${esc(stamp(job.openAt))}</b></div></div>`);
-      }
-      $('#tasks').innerHTML = rows.length ? rows.join('') : '<div class="empty">没有开抢任务。</div>';
+      if (job) rows.push(`<div class="task"><div class="what">单次 ${esc(dayLabel(job.date))} ${esc(job.start)}–${esc(job.end)}</div><div class="next">开抢 <b>${esc(stamp(job.openAt))}</b></div></div>`);
+      $('#tasks').innerHTML = rows.length ? rows.join('') : '<div class="empty">没有任务</div>';
     }
 
     function activityText(event) {
@@ -502,8 +482,8 @@
     function render(status) {
       latest = status;
       renderHero(status); renderStatus(status); renderTasks(status); renderBookings(status); renderResult(status); renderActivity(status);
-      $('#safety').textContent = status.safety?.message || '';
-      $('#updated').textContent = `更新于 ${clock(status.generatedAt)}`;
+      $('#safety').textContent = '只读面板';
+      $('#updated').textContent = `${clock(status.generatedAt)} 更新`;
     }
 
     async function refresh() {

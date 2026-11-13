@@ -123,6 +123,8 @@
     .bar.booked { background: var(--booked); color: var(--surface); font-size: 12px; font-weight: 600; display: flex; align-items: center; padding-left: 8px; white-space: nowrap; border-radius: 4px; }
     .lanes-body { position: relative; }
     .target-band { position: absolute; top: -4px; bottom: -4px; border: 2px dashed var(--target); border-radius: 6px; pointer-events: none; }
+    .lanes-caption { margin: 14px 20px -6px; font-size: 13px; color: var(--soft); }
+    .diagnosis { margin: 8px 20px 0; padding: 8px 12px; border-radius: 6px; background: var(--lane); font-size: 14px; }
     .legend { display: flex; flex-wrap: wrap; gap: 16px; padding: 0 20px 16px 84px; font-size: 12px; color: var(--soft); }
     .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
     .legend .k-booked { background: var(--booked); }
@@ -343,8 +345,18 @@
         return `<div class="lane"><span class="lane-name">${esc(courtName(court))}</span><div class="lane-track">${freeBars}${bookedBars}</div></div>`;
       }).join('');
       const band = `<div class="target-band" style="left:calc(var(--name) + (100% - var(--name)) * ${(toMin(window.start) - startMin) / span});width:calc((100% - var(--name)) * ${(toMin(window.end) - toMin(window.start)) / span})"></div>`;
-      return `<div class="lanes"><div class="axis"><span></span><div class="axis-ticks">${ticks.join('')}</div></div><div class="lanes-body">${lanes}${band}</div></div>
-        <div class="legend"><span><i class="k-booked"></i>订到的时段</span>${free.length ? '<span><i class="k-free"></i>失败后扫描到的空位</span>' : ''}<span><i class="k-target"></i>目标时段</span></div>`;
+      return `<p class="lanes-caption">每一行是一个场地，横向是当天的时间。</p><div class="lanes"><div class="axis"><span></span><div class="axis-ticks">${ticks.join('')}</div></div><div class="lanes-body">${lanes}${band}</div></div>
+        <div class="legend"><span><i class="k-target"></i>想订的时间</span>${segments.length ? '<span><i class="k-booked"></i>订到了</span>' : ''}${free.length ? '<span><i class="k-free"></i>没订到后马上再看，当时还空着</span>' : ''}</div>`;
+    }
+
+    // Turns the free runs scanned after a failure into a plain verdict: was there a court?
+    function diagnose(window, free) {
+      if (!free.length) return '';
+      const a = toMin(window.start), b = toMin(window.end);
+      const whole = [...new Set(free.filter((r) => toMin(r.start) <= a && toMin(r.end) >= b).map((r) => r.court))];
+      if (whole.length) return `${whole.map(courtName).join('、')}当时 ${window.start}–${window.end} 整段都空着：场地是有的，没订到是程序出了问题。`;
+      if (free.some((r) => toMin(r.start) < b && toMin(r.end) > a)) return `${window.start}–${window.end} 之间还有零散空位，但没有一个场地整段空着。`;
+      return `${window.start}–${window.end} 所有场地都已经被订满了。`;
     }
 
     function renderResult(status) {
@@ -360,20 +372,21 @@
       $('#result-aside').textContent = `${task.label}任务`;
       const segments = report.segments || (report.court ? [{ court: report.court, start: window.start, end: window.end, paymentStatus: report.paymentStatus }] : []);
       const attempts = Array.isArray(report.attempts) ? report.attempts : [];
-      let top, copy = '';
+      let top, copy = '', diagnosis = '';
       if (report.status === 'success') {
         const minutes = minutesBetween(segments);
-        const tierText = { full_window: segments.length > 1 ? '两个场地拼满了目标时段' : '一个场地订满了目标时段', longest_from_start: `没能订满，订到了从 ${window.start} 起最长的时间`, later_start: `${window.start} 全满，订了之后最长的时间` }[report.tier] || '';
+        const tierText = { full_window: segments.length > 1 ? '两个场地拼满了想订的时间' : '一个场地订满了想订的时间', longest_from_start: `没能订满，订到了从 ${window.start} 起最长的时间`, later_start: `${window.start} 全满，订了之后最长的时间` }[report.tier] || '';
         top = `<span class="verdict ok">订到了 ${esc(hoursText(minutes))}</span><span class="date">${esc(dayLabel(report.targetDate))}</span>`;
         copy = tierText;
       } else {
         const ex = report.explanation;
         top = `<span class="verdict bad">没有订到</span><span class="date">${esc(dayLabel(report.targetDate))}</span>`;
         copy = ex ? `${ex.reason} ${ex.action}` : (report.error || '');
+        diagnosis = diagnose(window, report.adjacent?.runs || []);
       }
       const chips = segments.length ? `<div class="chips">${segments.map((s) => `<span class="chip">${esc(courtName(s.court))} ${esc(s.start)}–${esc(s.end)}${s.paymentStatus ? `<small>${esc(PAY[s.paymentStatus] || '')}</small>` : ''}</span>`).join('')}</div>` : '';
       const attemptsHtml = attempts.length ? `<details class="attempts"><summary>重试了 ${attempts.length} 次</summary><ol>${attempts.map((a) => `<li>${esc(clock(a.at))} ${esc(a.error || '')}</li>`).join('')}</ol></details>` : '';
-      el.innerHTML = `<div class="result-top">${top}</div>${copy ? `<p class="result-copy">${esc(copy)}</p>` : ''}${chips}
+      el.innerHTML = `<div class="result-top">${top}</div>${copy ? `<p class="result-copy">${esc(copy)}</p>` : ''}${diagnosis ? `<p class="diagnosis">${esc(diagnosis)}</p>` : ''}${chips}
         ${lanesHtml({ window, segments: report.status === 'success' ? segments : [], free: report.adjacent?.runs || [], flexible: task.flexible })}${attemptsHtml}`;
     }
 

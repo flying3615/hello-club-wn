@@ -142,7 +142,7 @@ test('explains a missing selection modal without claiming a booking', () => {
   });
   assert.match(failure.reason, /预约弹窗/);
   assert.match(failure.action, /未创建预约/);
-  assert.match(failure.action, /不会自动改订/);
+  assert.match(failure.detail, /换其他场地/);
 });
 
 
@@ -164,4 +164,32 @@ test('explains a closed Chrome page without claiming a booking', () => {
   });
   assert.match(failure.reason, /Chrome/);
   assert.match(failure.action, /未创建预约/);
+});
+
+test('keeps flexible booking segments and retry attempts in public reports', async () => {
+  const { publicRecurringReport, publicRun } = await import('../src/control-panel-data.mjs');
+  const report = publicRecurringReport({
+    status: 'success', targetDate: '2026-11-22', tier: 'full_window',
+    job: { start: '08:00', end: '10:00', participants: ['secret'] },
+    segments: [{ court: 'Court 4', start: '08:00', end: '09:00', paymentStatus: 'unpaid_hold', remoteBookingId: 'abc', extra: 'x' }, { court: 'Bad', start: 'x', end: 'y' }],
+    attempts: [{ at: '2026-11-14T18:00:01Z', error: 'Target closed' }],
+  });
+  assert.deepEqual(report.segments, [{ court: 'Court 4', start: '08:00', end: '09:00', paymentStatus: 'unpaid_hold', remoteBookingId: 'abc' }]);
+  assert.deepEqual(report.window, { start: '08:00', end: '10:00' });
+  assert.equal(report.tier, 'full_window');
+  assert.equal(report.attempts.length, 1);
+  assert.equal(report.job, undefined);
+  const run = publicRun({ status: 'booking_verified', timestamp: 't', taskId: 'weekend', selection: { court: 'Court 4', segments: [{ court: 'Court 4', start: '08:00', end: '10:00' }], secret: 1 } });
+  assert.equal(run.selection.segments.length, 1);
+  assert.equal(run.selection.secret, undefined);
+  assert.equal(run.taskId, 'weekend');
+});
+
+test('reads the loaded LaunchAgent run time, caffeinate, and the repeating wake', async () => {
+  const { launchAgentConfig, parseRepeatingWake } = await import('../src/control-panel-server.mjs');
+  const print = `program = /usr/bin/caffeinate\n\targuments = {\n\t\t/usr/bin/caffeinate\n\t}\n\t\t"Hour" => 6\n\t\t"Minute" => 57\n`;
+  assert.deepEqual(launchAgentConfig(print), { keepsAwake: true, loadedRunTime: '06:57' });
+  assert.deepEqual(launchAgentConfig('program = /Users/x/node\n"Hour" => 6\n"Minute" => 54'), { keepsAwake: false, loadedRunTime: '06:54' });
+  assert.deepEqual(parseRepeatingWake('Repeating power events:\n  wakepoweron at 6:56AM Some days\n'), { time: '06:56', days: 'Some days' });
+  assert.equal(parseRepeatingWake('Scheduled power events:'), null);
 });

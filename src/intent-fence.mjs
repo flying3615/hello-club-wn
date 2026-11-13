@@ -11,19 +11,29 @@ function fenceFile(directory, job) {
   return path.join(directory, `${bookingIntentKey(job)}.json`);
 }
 
-function normalizeFence({ job, phase, priorBookingIds = [], selectedCourt = null, now = new Date().toISOString() }) {
+function normalizeSegment(segment) {
+  if (segment === undefined || segment === null) return undefined;
+  const ok = segment && /^\d{4}-\d{2}-\d{2}$/.test(segment.date) && /^\d{2}:\d{2}$/.test(segment.start) && /^\d{2}:\d{2}$/.test(segment.end);
+  if (!ok) throw new Error('Intent fence has an invalid segment');
+  return { date: segment.date, start: segment.start, end: segment.end };
+}
+
+function normalizeFence({ job, phase, priorBookingIds = [], selectedCourt = null, segment, now = new Date().toISOString() }) {
   if (!VALID_PHASES.has(phase)) throw new Error('Intent fence requires a supported ambiguous phase');
   if (!Array.isArray(priorBookingIds) || priorBookingIds.some((id) => typeof id !== 'string' || !id)) {
     throw new Error('Intent fence requires valid prior booking IDs');
   }
   if (selectedCourt !== null && !/^Court [1-6]$/.test(selectedCourt)) throw new Error('Intent fence has an invalid selected court');
-  return {
+  const fence = {
     intentKey: bookingIntentKey(job), phase, priorBookingIds: [...new Set(priorBookingIds)].sort(), selectedCourt, createdAt: now,
   };
+  const normalizedSegment = normalizeSegment(segment);
+  if (normalizedSegment) fence.segment = normalizedSegment;
+  return fence;
 }
 
-export async function writeIntentFence({ directory = DEFAULT_FENCE_DIRECTORY, job, phase, priorBookingIds, selectedCourt, now } = {}) {
-  const fence = normalizeFence({ job, phase, priorBookingIds, selectedCourt, now });
+export async function writeIntentFence({ directory = DEFAULT_FENCE_DIRECTORY, job, phase, priorBookingIds, selectedCourt, segment, now } = {}) {
+  const fence = normalizeFence({ job, phase, priorBookingIds, selectedCourt, segment, now });
   const file = fenceFile(directory, job);
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.tmp`;
@@ -69,3 +79,24 @@ export async function reconcileIntentFence({ directory = DEFAULT_FENCE_DIRECTORY
 }
 
 export { DEFAULT_FENCE_DIRECTORY };
+
+/** Fences that recorded their booking segment for the given date (flexible multi-booking runs). */
+export async function listDateIntentFences({ directory = DEFAULT_FENCE_DIRECTORY, date } = {}) {
+  let names;
+  try {
+    names = await fs.readdir(directory);
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+  const fences = [];
+  for (const name of names.filter((item) => item.endsWith('.json'))) {
+    try {
+      const fence = JSON.parse(await fs.readFile(path.join(directory, name), 'utf8'));
+      if (fence?.segment?.date === date && VALID_PHASES.has(fence.phase)) fences.push(fence);
+    } catch {
+      // ignore unreadable or partial files
+    }
+  }
+  return fences;
+}

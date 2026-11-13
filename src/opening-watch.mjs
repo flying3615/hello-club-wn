@@ -1,6 +1,7 @@
 import {
   connectExistingChrome,
   isPagePreloading,
+  isTargetClosedError,
   openRawBookingPage,
 } from './session.mjs';
 import { DEFAULT_BASE_URL, DEFAULT_CDP_ENDPOINT, bookingUrl } from './config.mjs';
@@ -11,6 +12,7 @@ import {
   pollUntilReady,
   waitUntilOpeningWindow,
 } from './opening-window.mjs';
+export { waitUntilOpeningWindow };
 
 const TARGET_ZONE = 'Pacific/Auckland';
 const COMPLETE_GRID_SLOT_COUNT = 48 * 6;
@@ -112,6 +114,57 @@ export async function isTargetGridReady(page, date) {
   }, label);
 }
 
+export function createSelfHealingTab({ context, targetUrl, maxReopens = 3 }) {
+  let page = null;
+  const tab = {
+    adopt(candidate) { page = candidate; },
+    browserDisconnected() {
+      const browser = typeof context.browser === 'function' ? context.browser() : null;
+      return Boolean(browser && typeof browser.isConnected === 'function' && !browser.isConnected());
+    },
+    async live() {
+      if (!page || (typeof page.isClosed === 'function' && page.isClosed())) {
+        page = await context.newPage();
+      }
+      return page;
+    },
+    async navigate() {
+      for (let attempt = 0; ; attempt += 1) {
+        const current = await tab.live();
+        try {
+          await current.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+          await current.locator('body').waitFor({ state: 'visible', timeout: 30_000 });
+          return current;
+        } catch (error) {
+          if (!isTargetClosedError(error) || attempt >= maxReopens || tab.browserDisconnected()) throw error;
+          if (typeof current.isClosed !== 'function' || current.isClosed()) page = null;
+        }
+      }
+    },
+  };
+  return tab;
+}
+
+export async function reloadTargetGrid({
+  page, date, baseUrl = DEFAULT_BASE_URL, timeoutMs = 20_000, pollMs = 1_000,
+  now = () => Date.now(), sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}) {
+  const targetUrl = bookingUrl(date, baseUrl);
+  await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  const poll = await pollUntilReady({
+    isReady: async () => isTargetGridReady(page, date),
+    refresh: async () => {},
+    pollMs,
+    timeoutMs,
+    now,
+    sleep,
+  });
+  if (!poll.ready) throw new Error('Target grid did not become ready after reload');
+  const gridRoot = await locateTargetCalendarGridRoot(page, date);
+  const grid = await scanBookingGrid(gridRoot);
+  return { gridRoot, grid };
+}
+
 export async function waitForOpeningInstant({ openAtMs, now, sleep }) {
   return waitUntilOpeningWindow({ openAtMs, leadMs: 0, now, sleep });
 }
@@ -143,24 +196,59 @@ export async function watchOpening({
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
   const targetUrl = bookingUrl(date, baseUrl);
-  const page = await openRawBookingPage(context, date, baseUrl);
   const options = normalizePollOptions({ pollMs, timeoutMs, leadMs });
+  const tab = createSelfHealingTab({ context, targetUrl });
+  try {
+    await tab.adopt(await openRawBookingPage(context, date, baseUrl));
+  } catch (error) {
+    if (!isTargetClosedError(error)) throw error;
+  }
+
+  // Prewarm: re-navigate shortly before the opening so a tab that was discarded,
+  // crashed or detached while the Mac slept is replaced before the critical instant.
+  const tolerantNavigate = async () => {
+    try {
+      await tab.navigate();
+    } catch (error) {
+      if (tab.browserDisconnected()) throw error;
+    }
+  };
+  if (now() < openAtMs - 2_000) {
+    await waitUntilOpeningWindow({ openAtMs, leadMs: options.leadMs, now, sleep });
+    await tolerantNavigate();
+  }
+
   await waitForOpeningInstant({ openAtMs, now, sleep });
-  await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-  await page.locator('body').waitFor({ state: 'visible', timeout: 30_000 });
+  await tolerantNavigate();
 
   const poll = await pollUntilReady({
-    isReady: async () => isTargetGridReady(page, date),
+    isReady: async () => {
+      try {
+        return await isTargetGridReady(await tab.live(), date);
+      } catch (error) {
+        // A closed tab is replaced by tab.live() on the next refresh; a context
+        // destroyed by an in-flight reload simply means "not ready yet".
+        if (!isTargetClosedError(error) || tab.browserDisconnected()) throw error;
+        return false;
+      }
+    },
     refresh: async () => {
-      if (await isPagePreloading(page)) return;
-      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-      await page.locator('body').waitFor({ state: 'visible', timeout: 30_000 });
+      try {
+        const current = await tab.live();
+        if (await isPagePreloading(current)) return;
+      } catch (error) {
+        if (!isTargetClosedError(error) || tab.browserDisconnected()) throw error;
+      }
+      // A slow or failed reload must not abort the bounded opening window;
+      // only a disconnected browser is fatal here (the caller reconnects).
+      await tolerantNavigate();
     },
     pollMs: options.pollMs,
     timeoutMs: options.timeoutMs,
     now,
     sleep,
   });
+  const page = await tab.live();
 
   if (!poll.ready) return { page, poll, targetUrl, gridRoot: null, grid: null, selection: null };
   const gridRoot = await locateTargetCalendarGridRoot(page, date);

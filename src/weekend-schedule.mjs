@@ -1,5 +1,5 @@
 const AUCKLAND_ZONE = 'Pacific/Auckland';
-const RUN_TIME = { hour: 6, minute: 54 };
+const RUN_TIME = { hour: 6, minute: 57 };
 
 function localParts(value) {
   const parts = new Intl.DateTimeFormat('en-CA', {

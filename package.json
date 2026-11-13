@@ -14,7 +14,8 @@
     "plan:wake": "node src/rtc-wake.mjs",
     "arm:wake": "node src/arm-rtc-wake.mjs",
     "schedule:job": "node src/schedule-job.mjs",
-    "panel": "node src/control-panel-server.mjs"
+    "panel": "node src/control-panel-server.mjs",
+    "create:recurring": "node src/create-recurring-agents.mjs"
   },
   "dependencies": {
     "playwright": "^1.58.0"

@@ -4,7 +4,7 @@ import { assertPeakBoundary } from './peak-time.mjs';
 const COURTS = new Set(['Court 1', 'Court 2', 'Court 3', 'Court 4', 'Court 5', 'Court 6']);
 const ALLOWED_KEYS = new Set([
   'id', 'date', 'start', 'end', 'openAt', 'prepareAt', 'latestStart', 'bookingType',
-  'participants', 'courtOrder', 'paymentPolicy', 'submit',
+  'participants', 'courtOrder', 'paymentPolicy', 'submit', 'flexible',
 ]);
 const SECRET_LIKE = /pass(word)?|secret|token|cookie|card|cvc|credential|api.?key/i;
 const TIME = /^(?:[01]\d|2[0-3]):(?:00|30)$/;
@@ -70,6 +70,7 @@ export function validateBookingJob(job, { mode = 'watch' } = {}) {
   assert(new Set(job.courtOrder).size === job.courtOrder.length, 'courtOrder must not contain duplicates');
   assert(job.paymentPolicy === 'cancel-on-payment', 'paymentPolicy must be cancel-on-payment');
   assert(typeof job.submit === 'boolean', 'submit must be boolean');
+  assert(job.flexible === undefined || typeof job.flexible === 'boolean', 'flexible must be boolean when present');
   if (mode === 'execute') assert(job.submit === true, 'execute mode requires submit: true');
   return job;
 }

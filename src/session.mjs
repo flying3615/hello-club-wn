@@ -18,6 +18,12 @@ export async function launchPersistentSession({ headless = false, executablePath
   });
 }
 
+const TARGET_CLOSED = /Target page, context or browser has been closed|Target closed|Target crashed|page crashed|Page closed|has been closed|frame was detached|Execution context was destroyed/i;
+
+export function isTargetClosedError(error) {
+  return TARGET_CLOSED.test(String(error?.message || error || ''));
+}
+
 export async function connectExistingChrome(endpoint = DEFAULT_CDP_ENDPOINT) {
   const browser = await chromium.connectOverCDP(endpoint);
   const context = browser.contexts()[0];

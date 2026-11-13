@@ -86,7 +86,7 @@ npm run schedule:job -- \
 
 `--submit` defaults to `false`; only an explicit `--submit true` creates an executing job. Use `--courts` to override the court priority order and `--id` to choose a stable job ID.
 
-> **macOS launchd note:** launchd agents cannot read a checkout under `~/Documents` without Full Disk Access; the agent exits with `EX_CONFIG` 78 and the log shows `Operation not permitted`. Run the dispatcher from a non-protected runtime copy instead. On this machine the stable runtime is `~/hello-club-playwright`, independent of the Hermes app; its dedicated Chrome profile is `~/hello-club-playwright/state/chrome-cdp-profile`. After editing the git checkout, sync `src`, `templates`, `public`, `package.json`, and `node_modules` there before scheduling. Do not keep runtime state under `~/.hermes`, because Hermes updates can remove it. Do not create the active job in a checkout that launchd cannot read.
+> **macOS launchd note:** launchd agents cannot read a checkout under `~/Documents` without Full Disk Access; the agent exits with `EX_CONFIG` 78 and the log shows `Operation not permitted`. The git checkout therefore lives at `~/hello-club-playwright`, which is also the runtime root: launchd, the control panel, and the dedicated Chrome profile (`state/chrome-cdp-profile`) all run from this one checkout, so there is no separate copy to sync. Do not move it under `~/Documents`, and do not keep runtime state under `~/.hermes`, because Hermes updates can remove it.
 
 Create or regenerate the persistent dispatcher plist:
 
@@ -148,15 +148,50 @@ Two independent LaunchAgents run the same protected `execute` flow:
 
 | Task | Launch time | Target | Fixed interval |
 | --- | --- | --- | --- |
-| `com.hermes.hello-club.monday` | Monday **06:54** | next Monday | **15:30–17:00** |
-| `com.hermes.hello-club.weekend` | Saturday/Sunday **06:54** | same weekday + 7 days | **08:00–09:30** |
+| `com.hermes.hello-club.monday` | Monday **06:57** | next Monday | **15:30–17:00** |
+| `com.hermes.hello-club.weekend` | Saturday/Sunday **06:57** | same weekday + 7 days | **08:00–10:00, flexible** (see below) |
 
-Each run targets the same weekday seven days later. It never substitutes another interval: if the full interval is unavailable, the run fails and the failure record includes nearby availability from **06:00–19:30** for that date. Transient Chrome/CDP failures such as `Target page, context or browser has been closed` are retried within the opening window before the run is declared failed.
+### Flexible weekend booking
 
-The Mac must wake for the 06:54 runs. Install the repeating wake once from a normal Terminal:
+Weekend courts are sometimes partly taken by events, so the weekend job (`flexible: true`) books the best available time instead of one fixed court. After the opening it reads the grid once and picks, in order:
+
+1. **One court for the whole 08:00–10:00**, in court priority order.
+2. **Two courts that together cover 08:00–10:00** (e.g. Court 4 08:00–09:00 + Court 5 09:00–10:00). This is two separate Hello Club bookings; never more than two.
+3. **The longest continuous time from 08:00** (at most two bookings), even if it is shorter than 1.5 hours.
+4. **If no court is free at 08:00 at all:** the longest later time up to two hours (fewer bookings first, then the earliest start), always ending by the 13:00 weekend peak.
+
+Both bookings are submitted back to back; remote-calendar verification of each runs afterwards, and each booking keeps its own confirmation fence until it is verified. The second booking re-reads the grid first and, if its court was taken, uses another court from the exact end of the first booking. A failure on the second booking never discards the first. Before any submission (including retries) the job refuses to book again when these participants already hold time on that date before 13:00, and an unresolved fence from an earlier attempt blocks new submissions until it is reconciled.
+
+The Monday job stays a fixed interval on one court.
+
+Each run targets the same weekday seven days later. Fixed-interval jobs (Monday) never substitute another interval: if the full interval is unavailable, the run fails and the failure record includes nearby availability from **06:00–19:30** for that date.
+
+Reliability safeguards for the opening race:
+
+- **Prewarm check.** 15 seconds before 07:00 the target tab is re-navigated. A tab that was discarded, crashed, or detached while the Mac slept (`Target page, context or browser has been closed`, the 2026-11-14 failure) is replaced by a fresh tab before the opening, and again at any point during polling.
+- **Prior bookings read before the opening.** The duplicate-booking snapshot (four calendar months) is taken during prewarm instead of between the opening and the first slot click. A target date cannot be booked before its opening instant, so the snapshot is equivalent.
+- **Court fallback.** If a court fails *before* **CONFIRM BOOKING** (for example the selection modal never opens because another member took the slot), the selection fence is cleared, the grid is reloaded, and the next permitted court is tried (at most two attempts per court) until `latestStart`. Any failure at or after **CONFIRM BOOKING** never falls back; it goes through authenticated reconciliation as before.
+- **Retries until `latestStart`.** Transient Chrome/CDP failures are retried with 1–5 second delays until the job's late-start deadline instead of a fixed three attempts. Each attempt is logged as `attempt_failed`, and the failure report lists every attempt.
+- **No sleep during the run.** The Monday and weekend LaunchAgents run under `caffeinate -dimsu` with `ProcessType` `Interactive`, so the Mac cannot idle-sleep (and Chrome is not backgrounded by display sleep) between the 06:56 wake and the opening.
+
+Regenerate and reload the recurring agents after updating the runtime copy (normal macOS Terminal):
 
 ```bash
-sudo pmset repeat wakeorpoweron MSU 06:53:00
+cd ~/hello-club-playwright
+npm run create:recurring
+for task in weekend monday; do
+  label=com.hermes.hello-club.$task
+  cp state/launchd/$task.plist ~/Library/LaunchAgents/$label.plist
+  launchctl bootout gui/$(id -u)/$label 2>/dev/null || true
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/$label.plist
+done
+launchctl print gui/$(id -u)/com.hermes.hello-club.weekend | grep -A6 arguments
+```
+
+The Mac must wake for the 06:57 runs. Install the repeating wake once from a normal Terminal:
+
+```bash
+sudo pmset repeat wakeorpoweron MSU 06:56:00
 ```
 
 `MSU` means Monday, Saturday, and Sunday. This replaces any existing repeating wake/sleep pair; check `pmset -g sched` first if another repeating schedule is in use. A repeating wake works after sleep, not after shutdown.
@@ -173,7 +208,7 @@ npm run panel
 
 On this machine it is also installed as a persistent `KeepAlive` LaunchAgent at `~/Library/LaunchAgents/com.hermes.hello-club.panel.plist`, running from `~/hello-club-playwright`, so it survives terminal and session exits.
 
-Open `http://127.0.0.1:8787`. It shows safe status information for the dispatcher, Chrome/CDP reachability, active runner locks, any active job, recent activity, and only authenticated-remote verified bookings. When the most recent runner attempt failed, a separate notice shows the job date/time, the reason, whether a booking was created, and the next safe action; dispatcher health is reported independently from that failed attempt. The browser UI refreshes hourly; its remote booking cache is refreshed at most every 12 hours.
+Open `http://127.0.0.1:8787`. The page leads with the next weekend opening (countdown and target window) and a readiness checklist for that morning: dedicated Chrome reachable, the repeating `pmset` wake time, the run time of the *loaded* LaunchAgent (so an un-reloaded plist is flagged), and whether `caffeinate` is active. Below it, the last weekend result is drawn as six court lanes: booked segments, the free runs scanned after a failure, and the target window, plus every retry attempt. Upcoming and past bookings come only from the authenticated Hello Club calendar. The page refreshes every minute (local state only); the remote booking cache is refreshed at most every 12 hours or right after a verified booking. It is read-only and has a manual refresh button.
 
 The panel does not display raw page content, Chrome profile data, CDP details, credentials, cookies, payment data, prompts, or arbitrary log contents.
 

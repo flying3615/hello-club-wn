@@ -20,6 +20,16 @@ export class SlotActionabilityError extends Error {
   }
 }
 
+export class PreConfirmBookingError extends Error {
+  constructor(court, cause) {
+    super(`Booking flow failed before CONFIRM BOOKING on ${court}: ${String(cause?.message || cause).slice(0, 300)}`);
+    this.name = 'PreConfirmBookingError';
+    this.code = 'pre_confirm_failed';
+    this.court = court;
+    this.cause = cause;
+  }
+}
+
 export { remoteRecordMatchesIntent };
 
 export function slotRangeIndices(startTime, endTime) {
@@ -290,6 +300,8 @@ export async function submitBooking({
   writeFence = writeIntentFence,
   clearFence = clearIntentFence,
   assertDeadline = () => {},
+  priorBookings: prefetchedPriorBookings = null,
+  deferVerification = false,
 }) {
   const scope = gridRoot || page;
   assertDeadline();
@@ -299,45 +311,57 @@ export async function submitBooking({
   const { startSlot, endSlot } = await preflightRenderedBookingSlots({
     scope, grid, court, start: job.start, end: job.end,
   });
-  const priorBookings = await read();
+  // The prior-booking snapshot is normally taken during prewarm (a target date cannot
+  // be booked before its opening instant), so the 4-page calendar read is not on the
+  // critical path between the opening and the first slot click.
+  const priorBookings = Array.isArray(prefetchedPriorBookings) ? prefetchedPriorBookings : await read();
   if (priorBookings.some((record) => remoteRecordMatchesIntent(record, job))) {
     throw new Error('Equivalent booking intent already exists remotely; refusing a duplicate submission');
   }
   const priorBookingIds = new Set(priorBookings.map((record) => record.id));
-  await writeFence({ job, phase: 'selection_unknown', priorBookingIds: [...priorBookingIds], selectedCourt: court });
-  assertDeadline();
-  await selectRenderedSlotRange({ startSlot, endSlot, assertDeadline });
-  const modal = visibleModal(page);
-  await modal.waitFor({ state: 'visible', timeout: 5_000 });
-  verifySelection(await modal.innerText(), job, court);
+  await writeFence({ job, phase: 'selection_unknown', priorBookingIds: [...priorBookingIds], selectedCourt: court, segment: { date: job.date, start: job.start, end: job.end } });
+  let review;
+  try {
+    assertDeadline();
+    await selectRenderedSlotRange({ startSlot, endSlot, assertDeadline });
+    const modal = visibleModal(page);
+    await modal.waitFor({ state: 'visible', timeout: 5_000 });
+    verifySelection(await modal.innerText(), job, court);
 
-  await modal.locator('select-box .InputWrapper').click();
-  const option = page.locator('.SelectBox-options li').filter({ hasText: job.bookingType });
-  if (await option.count() !== 1) throw new Error('Expected exactly one approved booking-type option');
-  await option.click();
-  if ((await modal.locator('input.Input').inputValue()) !== job.bookingType) throw new Error('Booking-type selection mismatch');
-  assertDeadline();
-  await clickExact(modal, 'Next');
-  await pause(250);
+    await modal.locator('select-box .InputWrapper').click();
+    const option = page.locator('.SelectBox-options li').filter({ hasText: job.bookingType });
+    if (await option.count() !== 1) throw new Error('Expected exactly one approved booking-type option');
+    await option.click();
+    if ((await modal.locator('input.Input').inputValue()) !== job.bookingType) throw new Error('Booking-type selection mismatch');
+    assertDeadline();
+    await clickExact(modal, 'Next');
+    await pause(250);
 
-  const members = visibleModal(page);
-  await members.waitFor({ state: 'visible', timeout: 5_000 });
-  await chooseLinkedMember(members, job.participants[1]);
-  verifyExactParticipantSet(await readSelectedMemberNames(members), job.participants);
-  assertDeadline();
-  await clickExact(members, 'Next');
-  await pause(300);
+    const members = visibleModal(page);
+    await members.waitFor({ state: 'visible', timeout: 5_000 });
+    await chooseLinkedMember(members, job.participants[1]);
+    verifyExactParticipantSet(await readSelectedMemberNames(members), job.participants);
+    assertDeadline();
+    await clickExact(members, 'Next');
+    await pause(300);
 
-  const review = visibleModal(page);
-  await review.waitFor({ state: 'visible', timeout: 5_000 });
-  await waitForFinalReview(review);
-  verifyExactParticipantSet(await readFinalReviewMemberNames(review), job.participants);
-  verifyFinalReview(await review.innerText(), job, court);
-  const agreement = review.locator('check-box').filter({ hasText: 'All players are registered' }).locator('label');
-  if (await agreement.count() !== 1) throw new Error('Required player-registration acknowledgement was not found uniquely');
-  if (!/\bchecked\b/.test(await agreement.getAttribute('class') || '')) await agreement.click();
-  if (!/\bchecked\b/.test(await agreement.getAttribute('class') || '')) throw new Error('Required player-registration acknowledgement was not confirmed');
-  await writeFence({ job, phase: 'confirmation_unknown', priorBookingIds: [...priorBookingIds], selectedCourt: court });
+    review = visibleModal(page);
+    await review.waitFor({ state: 'visible', timeout: 5_000 });
+    await waitForFinalReview(review);
+    verifyExactParticipantSet(await readFinalReviewMemberNames(review), job.participants);
+    verifyFinalReview(await review.innerText(), job, court);
+    const agreement = review.locator('check-box').filter({ hasText: 'All players are registered' }).locator('label');
+    if (await agreement.count() !== 1) throw new Error('Required player-registration acknowledgement was not found uniquely');
+    if (!/\bchecked\b/.test(await agreement.getAttribute('class') || '')) await agreement.click();
+    if (!/\bchecked\b/.test(await agreement.getAttribute('class') || '')) throw new Error('Required player-registration acknowledgement was not confirmed');
+  } catch (error) {
+    // Nothing has been submitted before CONFIRM BOOKING, so the selection fence can be
+    // cleared and the caller may safely retry (for example on the next priority court).
+    await clearFence({ job });
+    try { await page.keyboard?.press?.('Escape'); } catch { /* the caller reloads the page */ }
+    throw new PreConfirmBookingError(court, error);
+  }
+  await writeFence({ job, phase: 'confirmation_unknown', priorBookingIds: [...priorBookingIds], selectedCourt: court, segment: { date: job.date, start: job.start, end: job.end } });
   assertDeadline();
   await clickExact(review, 'CONFIRM BOOKING');
   await pause(1_000);
@@ -363,8 +387,17 @@ export async function submitBooking({
   }
   if (paymentStatus === 'unknown') throw new Error('Post-confirmation state is unknown; refusing to infer booking success');
 
-  const remoteBooking = await waitForNewRemoteBooking({ job, court, priorBookingIds, read, bookingId: remoteBookingId });
+  const pending = { job, court, paymentStatus, priorBookingIds, remoteBookingId };
+  // A multi-booking (flexible) run submits the next booking first and verifies afterwards;
+  // the confirmation fence stays in place until verifySubmittedBooking succeeds.
+  if (deferVerification) return { court, paymentStatus, pending };
+  return verifySubmittedBooking({ pending, read, clearFence });
+}
+
+export async function verifySubmittedBooking({ pending, read = readRemoteBookings, clearFence = clearIntentFence, waitOptions = {} }) {
+  const { job, court, paymentStatus, priorBookingIds, remoteBookingId } = pending;
+  const remoteBooking = await waitForNewRemoteBooking({ job, court, priorBookingIds, read, bookingId: remoteBookingId, ...waitOptions });
   verifyRemoteBookingRecord(remoteBooking, job, court, paymentStatus, remoteBookingId);
   await clearFence({ job });
-  return { court, paymentStatus };
+  return { court, paymentStatus, remoteBookingId: remoteBooking.id };
 }

@@ -16,8 +16,26 @@ const STATE_DIR = path.join(PROJECT_DIR, 'state');
 const ACTIVE_JOB_FILE = path.join(STATE_DIR, 'jobs', 'active.json');
 const AUCKLAND_ZONE = 'Pacific/Auckland';
 const DEFAULT_PARTICIPANTS = ['Yufei Liu', 'Zijia Liu'];
-const TRANSIENT_BROWSER_ERROR = /Target page, context or browser has been closed|Target closed|browser has been closed|ECONNREFUSED|connect.*CDP/i;
-const RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
+const TRANSIENT_BROWSER_ERROR = new RegExp([
+  'Target page, context or browser has been closed', 'Target closed', 'Target crashed', 'page crashed',
+  'browser has been closed', 'ECONNREFUSED', 'ECONNRESET', 'socket hang up', 'WebSocket', 'connect.*CDP',
+  'Execution context was destroyed', 'frame was detached', 'net::ERR_', 'page\\.goto: Timeout',
+  'Target grid did not become ready after reload',
+].join('|'), 'i');
+// Short delays first: after the opening every second counts. Retries continue until the
+// job's latestStart rather than stopping after a fixed number of attempts.
+const RETRY_DELAYS_MS = [1_000, 2_000, 3_000, 5_000];
+const MAX_RETRY_ATTEMPTS = 30;
+
+export function retryDelayMs(attempt) {
+  return RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
+}
+
+export function shouldRetry({ error, attempt, nowMs, latestStartMs }) {
+  return isTransientBrowserError(error)
+    && attempt < MAX_RETRY_ATTEMPTS
+    && nowMs + retryDelayMs(attempt) < latestStartMs;
+}
 
 export function isTransientBrowserError(error) {
   return TRANSIENT_BROWSER_ERROR.test(String(error?.message || error || ''));
@@ -70,6 +88,7 @@ export function buildRecurringJob({
     courtOrder: [...courtOrder],
     paymentPolicy: 'cancel-on-payment',
     submit: true,
+    ...(task.flexible ? { flexible: true } : {}),
   };
   return validateBookingJob(job, { mode: 'execute' });
 }
@@ -153,25 +172,26 @@ export async function runRecurringBooking({
   let result = null;
   let failure = null;
   const startedAt = new Date().toISOString();
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+  const attemptErrors = [];
+  for (let attempt = 0; ; attempt += 1) {
     try {
       result = await runLaunchdJob({ jobFile, mode: 'execute' });
       failure = null;
       break;
     } catch (error) {
       failure = error;
-      const canRetry = isTransientBrowserError(error)
-        && attempt < RETRY_DELAYS_MS.length
-        && Date.now() < Date.parse(job.latestStart);
-      if (!canRetry) break;
-      await sleep(RETRY_DELAYS_MS[attempt]);
+      attemptErrors.push({ at: new Date().toISOString(), error: String(error?.message || error).slice(0, 200) });
+      console.log(JSON.stringify({ status: 'attempt_failed', taskId: task.id, jobId: job.id, attempt: attempt + 1, error: attemptErrors.at(-1).error, at: attemptErrors.at(-1).at }));
+      if (!shouldRetry({ error, attempt, nowMs: Date.now(), latestStartMs: Date.parse(job.latestStart) })) break;
+      await sleep(retryDelayMs(attempt));
     }
   }
 
   const verifiedStatus = result && ['booking_verified', 'reconciled_verified'].includes(result.status);
   if (verifiedStatus) {
     const court = result.selection?.court || null;
-    const remote = court ? await findRemoteBooking(job, court) : null;
+    const segments = result.selection?.segments || null;
+    const remote = court && !segments ? await findRemoteBooking(job, court) : null;
     await appendRun({
       status: result.status || 'booking_verified',
       mode: 'execute',
@@ -191,12 +211,14 @@ export async function runRecurringBooking({
       targetDate: job.date,
       job,
       court,
+      segments,
+      tier: result.selection?.tier || null,
       paymentStatus: result.paymentStatus,
-      remoteBookingId: remote?.id || null,
+      remoteBookingId: remote?.id || segments?.[0]?.remoteBookingId || null,
       verifiedAt: result.finishedAt || new Date().toISOString(),
       archived,
     }, task, now);
-    console.log(JSON.stringify({ status: 'recurring_success', taskId: task.id, targetDate: job.date, court, remoteBookingId: remote?.id || null, report }));
+    console.log(JSON.stringify({ status: 'recurring_success', taskId: task.id, targetDate: job.date, court, segments, remoteBookingId: remote?.id || null, report }));
     return { status: 'success', task, job, court, remote, report };
   }
 
@@ -214,6 +236,7 @@ export async function runRecurringBooking({
     jobId: job.id,
     timestamp: startedAt,
     errorCode: message,
+    attempts: attemptErrors,
     adjacent,
   }, now);
   const archived = await archiveJob(jobFile, job, 'failed');
@@ -223,6 +246,7 @@ export async function runRecurringBooking({
     targetDate: job.date,
     job,
     error: message,
+    attempts: attemptErrors,
     adjacent,
     archived,
   }, task, now);

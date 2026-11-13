@@ -28,15 +28,41 @@ export function publicJob(job) {
   return safe;
 }
 
+const COURT = /^Court [1-6]$/;
+const HHMM = /^\d{2}:\d{2}$/;
+
+export function publicSegments(segments) {
+  if (!Array.isArray(segments)) return undefined;
+  return segments.slice(0, 4)
+    .map((item) => pick(item, ['court', 'start', 'end', 'paymentStatus', 'remoteBookingId']))
+    .filter((item) => item && COURT.test(item.court) && HHMM.test(item.start) && HHMM.test(item.end))
+    .map((item) => ({
+      ...item,
+      remoteBookingId: typeof item.remoteBookingId === 'string' ? item.remoteBookingId.slice(0, 100) : null,
+      paymentStatus: ['free', 'unpaid_hold', 'paid'].includes(item.paymentStatus) ? item.paymentStatus : undefined,
+    }));
+}
+
+function publicAttempts(attempts) {
+  if (!Array.isArray(attempts)) return typeof attempts === 'number' ? attempts : undefined;
+  return attempts.slice(0, 40).map((item) => ({
+    at: typeof item?.at === 'string' ? item.at : null,
+    error: safeErrorCode(item?.error) || null,
+  }));
+}
+
 export function publicRun(run) {
   const safe = pick(run, [
-    'status', 'mode', 'jobId', 'timestamp', 'startedAt', 'firstGridAt', 'finishedAt', 'attempts', 'selection', 'paymentStatus', 'adjacent',
+    'status', 'mode', 'jobId', 'taskId', 'timestamp', 'startedAt', 'firstGridAt', 'finishedAt', 'attempts', 'selection', 'paymentStatus', 'adjacent',
   ]);
   if (!safe?.status || !safe.timestamp) return null;
   if (typeof run.errorCode === 'string') safe.errorCode = safeErrorCode(run.errorCode);
   if (safe.selection && typeof safe.selection === 'object') {
-    safe.selection = pick(safe.selection, ['status', 'court', 'checked']);
+    const segments = publicSegments(safe.selection.segments);
+    safe.selection = pick(safe.selection, ['status', 'court', 'checked', 'tier']);
+    if (segments) safe.selection.segments = segments;
   }
+  if (safe.attempts !== undefined) safe.attempts = publicAttempts(safe.attempts);
   if (run.adjacent && typeof run.adjacent === 'object') safe.adjacent = publicAdjacent(run.adjacent);
   return safe;
 }
@@ -54,7 +80,7 @@ export function publicAdjacent(adjacent) {
 }
 
 export function publicRecurringReport(report) {
-  const safe = pick(report, ['status', 'targetDate', 'court', 'paymentStatus', 'remoteBookingId', 'error', 'verifiedAt', 'adjacent']);
+  const safe = pick(report, ['status', 'targetDate', 'court', 'paymentStatus', 'remoteBookingId', 'error', 'verifiedAt', 'adjacent', 'segments', 'tier', 'attempts']);
   if (!safe?.status || !['success', 'failed'].includes(safe.status) || !/^\d{4}-\d{2}-\d{2}$/.test(safe.targetDate || '')) return null;
   if (safe.court !== undefined && !/^Court [1-6]$/.test(safe.court)) delete safe.court;
   if (safe.paymentStatus !== undefined && !['free', 'unpaid_hold', 'paid'].includes(safe.paymentStatus)) delete safe.paymentStatus;
@@ -62,6 +88,16 @@ export function publicRecurringReport(report) {
   else delete safe.remoteBookingId;
   if (typeof safe.error === 'string') safe.error = safeErrorCode(safe.error);
   if (safe.adjacent) safe.adjacent = publicAdjacent(safe.adjacent);
+  if (safe.segments !== undefined) {
+    const segments = publicSegments(safe.segments);
+    if (segments?.length) safe.segments = segments; else delete safe.segments;
+  }
+  if (safe.tier !== undefined && !['full_window', 'longest_from_start', 'later_start'].includes(safe.tier)) delete safe.tier;
+  if (safe.attempts !== undefined) safe.attempts = publicAttempts(safe.attempts);
+  if (safe.job === undefined && report?.job && typeof report.job === 'object') {
+    const window = pick(report.job, ['start', 'end']);
+    if (HHMM.test(window?.start || '') && HHMM.test(window?.end || '')) safe.window = window;
+  }
   return safe;
 }
 
@@ -99,9 +135,9 @@ export function explainRunFailure(run, job = null) {
     return {
       ...base,
       title: '上次预约未成功',
-      reason: '执行时专用 Chrome 的页面被关闭，预约流程没有完成。',
-      detail: '可能是 Chrome 正在重启、窗口被关闭或连接短暂中断。周期任务现在会在开放窗口内自动重试瞬时连接失败。',
-      action: '未创建预约。请保持专用 Chrome 运行；如仍反复出现，检查 Chrome 是否被手动关闭。',
+      reason: '专用 Chrome 的页面在执行中失效，重试到截止时间仍未完成。',
+      detail: '程序会自动换新标签页并重试到 07:05。反复出现通常说明 Chrome 被关闭、Mac 在运行中睡着了，或防睡眠设置没有加载。',
+      action: '未创建预约。确认专用 Chrome 开着，并检查上方的“防睡眠”是否显示已加载。',
     };
   }
   if (/peak boundary|peak time|crosses the .*peak/i.test(code)) {
@@ -117,9 +153,18 @@ export function explainRunFailure(run, job = null) {
     return {
       ...base,
       title: '上次预约未成功',
-      reason: '选择时段后没有出现预约弹窗，所选时长或时段可能不可用。',
-      detail: '页面已加载，但点击开始/结束时段后未弹出预约确认框。2 小时连续时段可能超过该账户或场地允许的单次时长；1.5 小时可以正常选择。',
-      action: '未创建预约。请尝试较短的完整时段，系统不会自动改订其他时段。',
+      reason: '点选时段后没有出现预约弹窗，通常是这个时段刚被别人订走。',
+      detail: '程序会刷新网格并按优先级换其他场地；所有场地都失败后才会停止。',
+      action: '未创建预约。可以在 Hello Club 上看看当天还有哪些空位。',
+    };
+  }
+  if (/No available court time/i.test(code)) {
+    return {
+      ...base,
+      title: '上次没有订到',
+      reason: '开放时，13:00 前所有场地都没有空位。',
+      detail: '周末规则会先找 08:00 开始的时间，没有的话往后找，直到 13:00 高峰开始。',
+      action: '未创建预约。下方列出了当天扫描到的空位。',
     };
   }
   if (/latest start deadline|latest_start_passed|late_start/i.test(code)) {

@@ -11,15 +11,14 @@ test('gives an actionable message when opened directly as a file', async () => {
   assert.match(html, /请通过 http:\/\/127\.0\.0\.1:8787 打开/);
 });
 
-test('prioritizes active jobs and upcoming bookings over diagnostics', async () => {
+test('leads with the next opening and its readiness, then the last result', async () => {
   const html = await fs.readFile(panel, 'utf8');
-  assert.match(html, /id="system-status"/);
-  assert.match(html, /<h2>当前任务<\/h2>/);
-  assert.match(html, /<h2>周期任务<\/h2>/);
-  assert.match(html, /class="job-summary"/);
-  assert.match(html, /function renderJob\(job\)/);
-  assert.match(html, /id="failure" class="failure-banner"/);
-  assert.match(html, /每小时自动刷新/);
-  assert.match(html, /setInterval\(refresh, 3_600_000\)/);
-  assert.doesNotMatch(html, /<h2>Live processes<\/h2>/);
+  const hero = html.indexOf('id="hero"');
+  const checks = html.indexOf('明早能不能正常跑');
+  const result = html.indexOf('id="result"');
+  const upcoming = html.indexOf('id="upcoming"');
+  assert.ok(hero > 0 && hero < checks && checks < result && result < upcoming);
+  assert.match(html, /function lanesHtml\(/);
+  assert.match(html, /setInterval\(refresh, 60_000\)/);
+  assert.doesNotMatch(html, /<form|method="post"/i);
 });

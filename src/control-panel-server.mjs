@@ -10,6 +10,7 @@ import {
 import { createRemoteBookingCache, partitionRemoteBookings, readRemoteBookings } from './remote-bookings.mjs';
 import { nextRecurringRun } from './weekend-schedule.mjs';
 import { RECURRING_TASKS } from './recurring-tasks.mjs';
+import { openingInstantForTargetDate } from './opening-window.mjs';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DIR = path.resolve(new URL('..', import.meta.url).pathname);
@@ -85,9 +86,40 @@ async function launchAgentHealth(label) {
       state,
       runs: Number.isFinite(runCount) ? runCount : null,
       lastExitCode: Number.isFinite(exitCode) ? exitCode : null,
+      ...launchAgentConfig(stdout),
     };
   } catch {
-    return { configured: false, state: 'unavailable', runs: null, lastExitCode: null };
+    return { configured: false, state: 'unavailable', runs: null, lastExitCode: null, keepsAwake: null, loadedRunTime: null };
+  }
+}
+
+/** What the loaded (not just the on-disk) LaunchAgent will actually do. */
+export function launchAgentConfig(printOutput) {
+  const text = String(printOutput || '');
+  const program = field(text, 'program') || '';
+  const keepsAwake = /caffeinate/.test(program) || /arguments = \{[^}]*caffeinate/s.test(text);
+  const hour = text.match(/"Hour" => (\d+)/);
+  const minute = text.match(/"Minute" => (\d+)/);
+  const loadedRunTime = hour && minute ? `${hour[1].padStart(2, '0')}:${minute[1].padStart(2, '0')}` : null;
+  return { keepsAwake, loadedRunTime };
+}
+
+/** Parses the repeating wake from `pmset -g sched` (read-only). */
+export function parseRepeatingWake(output) {
+  const match = String(output || '').match(/wake(?:poweron|orpoweron)? at (\d{1,2}):(\d{2})\s*(AM|PM)\s*(.*)/i);
+  if (!match) return null;
+  let hour = Number(match[1]) % 12;
+  if (/pm/i.test(match[3])) hour += 12;
+  return { time: `${String(hour).padStart(2, '0')}:${match[2]}`, days: match[4].trim() || null };
+}
+
+async function wakeSchedule() {
+  try {
+    const { stdout } = await execFileAsync('/usr/bin/pmset', ['-g', 'sched'], { timeout: 3_000 });
+    const repeating = stdout.split(/Scheduled power events:/i)[0];
+    return { available: true, repeating: parseRepeatingWake(repeating) };
+  } catch {
+    return { available: false, repeating: null };
   }
 }
 
@@ -148,7 +180,7 @@ async function lockState() {
 export async function buildStatus() {
   const nowDate = new Date();
   const [
-    activeJob, dispatcher, cdp, chrome, locks, runs, dispatches,
+    activeJob, dispatcher, cdp, chrome, locks, runs, dispatches, wake,
   ] = await Promise.all([
     readJsonFile(path.join(STATE_DIR, 'jobs', 'active.json'), publicJob),
     dispatcherHealth(),
@@ -157,22 +189,31 @@ export async function buildStatus() {
     lockState(),
     readJsonLines(path.join(STATE_DIR, 'launchd', 'runs'), publicRun, { limit: 40 }),
     readJsonLines(path.join(STATE_DIR, 'launchd', 'dispatch-history'), publicDispatch, { limit: 40 }),
+    wakeSchedule(),
   ]);
   const recurringTasks = await Promise.all(Object.values(RECURRING_TASKS).map(async (task) => {
     const [health, lastReport] = await Promise.all([
       launchAgentHealth(task.launchdLabel),
       readLatestRecurringReport(task.id),
     ]);
+    if (lastReport?.status === 'failed') {
+      const explained = explainRunFailure({ status: 'failed', errorCode: lastReport.error || '', timestamp: lastReport.verifiedAt || null });
+      lastReport.explanation = explained ? { title: explained.title, reason: explained.reason, action: explained.action } : null;
+    }
     let next = null;
     try {
       next = nextRecurringRun(nowDate, task);
+      next.openAt = new Date(openingInstantForTargetDate(next.targetDate)).toISOString();
     } catch {
       next = null;
     }
+    const expectedRunTime = `${String(task.runTime.hour).padStart(2, '0')}:${String(task.runTime.minute).padStart(2, '0')}`;
     return {
       id: task.id,
       label: task.label,
       ...health,
+      expectedRunTime,
+      flexible: Boolean(task.flexible),
       window: { start: task.start, end: task.end },
       weekdays: task.weekdays,
       next,
@@ -205,6 +246,7 @@ export async function buildStatus() {
       mode: 'read_only',
       message: '此面板只读，不能选择、提交、支付、取消或修改预约。',
     },
+    wake,
     processes: {
       dispatcher,
       chrome: { processDetected: chromeReady, cdpReachable: cdp.reachable },

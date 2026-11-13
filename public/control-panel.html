@@ -4,299 +4,476 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Hello Club — 预约监控</title>
+  <title>羽毛球场预约</title>
   <style>
     :root {
-      --paper: #f5f4ef;
-      --ink: #18231f;
-      --muted: #627069;
-      --line: #ccd4cd;
-      --card: #fffefa;
-      --green: #286b4e;
-      --green-soft: #e0eee4;
-      --amber: #9a6515;
-      --amber-soft: #f8ebcf;
-      --red: #aa3e35;
-      --red-soft: #f7ded9;
-      --slate: #42524b;
-      --shadow: 0 1px 1px rgba(24,35,31,.05), 0 8px 24px rgba(24,35,31,.06);
+      --bg: #edf0f2;
+      --surface: #ffffff;
+      --ink: #13222e;
+      --soft: #5a6b77;
+      --rule: #d5dce1;
+      --court: #0f5b47;
+      --court-deep: #0b4637;
+      --court-line: rgba(244, 247, 245, .55);
+      --on-court: #f4f7f5;
+      --lane: #e3e8eb;
+      --free: #a9d8c2;
+      --booked: #0f5b47;
+      --target: #e3a51c;
+      --ok: #1d7a55;
+      --warn: #b7791f;
+      --bad: #c23a3a;
+      --focus: #e3a51c;
     }
+    :root[data-theme="dark"], :root:not([data-theme="light"]) { color-scheme: light dark; }
     @media (prefers-color-scheme: dark) {
-      :root { --paper:#121815; --ink:#e4e9e3; --muted:#a7b4ac; --line:#33443b; --card:#1a241f; --green:#82c59d; --green-soft:#1c3929; --amber:#e9b967; --amber-soft:#3c2d17; --red:#ef958b; --red-soft:#462321; --slate:#bdcbc3; --shadow:none; }
+      :root:not([data-theme="light"]) {
+        --bg: #0e1419; --surface: #151d24; --ink: #e2e9ee; --soft: #94a4af; --rule: #26323b;
+        --court: #124d3d; --court-deep: #0d3b2f; --on-court: #e8f0ec; --lane: #1e2830;
+        --free: #2f6b55; --booked: #5fc49a; --ok: #5fc49a; --warn: #e2b04f; --bad: #ef8a80;
+      }
     }
     * { box-sizing: border-box; }
-    body { margin:0; color:var(--ink); background:var(--paper); font-family: ui-rounded, "Avenir Next", Avenir, "Segoe UI", sans-serif; }
-    .wrap { width:min(1120px, calc(100% - 32px)); margin:0 auto; padding:24px 0 40px; }
-    header { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; padding:0 0 18px; border-bottom:1px solid var(--line); }
-    .eyebrow { font-size:12px; font-weight:700; color:var(--green); letter-spacing:.11em; text-transform:uppercase; margin-bottom:7px; }
-    h1 { margin:0; font-size:clamp(26px, 3.2vw, 34px); letter-spacing:-.035em; line-height:1.05; font-weight:760; }
-    .sub { color:var(--muted); font-size:14px; margin:9px 0 0; max-width:640px; line-height:1.5; }
-    .refresh { text-align:right; color:var(--muted); font-size:12px; line-height:1.5; min-width:180px; }
-    .refresh strong { display:block; color:var(--ink); font-variant-numeric:tabular-nums; font-size:13px; }
-    .grid { display:grid; grid-template-columns:1fr; gap:14px; margin-top:16px; }
-    .full { grid-column:1 / -1; }
-    section { background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); overflow:hidden; }
-    .heading { padding:15px 18px 13px; display:flex; align-items:baseline; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); }
-    h2 { font-size:15px; letter-spacing:-.01em; margin:0; }
-    .note { font-size:12px; color:var(--muted); }
-    .dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; background:var(--slate); }
-    .dot.good { background:var(--green); box-shadow:0 0 0 4px var(--green-soft); }
-    .dot.warn { background:var(--amber); box-shadow:0 0 0 4px var(--amber-soft); }
-    .dot.bad { background:var(--red); box-shadow:0 0 0 4px var(--red-soft); }
-    .detail { color:var(--muted); font-size:13px; line-height:1.5; }
-    .empty { padding:22px 18px; color:var(--muted); font-size:14px; line-height:1.55; }
-    .job-summary { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; padding:20px 18px 0; }
-    .job-date { color:var(--muted); font-size:13px; font-weight:650; }
-    .job-time { margin-top:2px; font-size:clamp(24px, 3vw, 32px); font-weight:780; letter-spacing:-.04em; line-height:1.05; }
-    .job-time time { font:inherit; font-variant-numeric:tabular-nums; }
-    .job-status { padding-top:2px; }
-    .job-meta { display:flex; flex-wrap:wrap; gap:6px 18px; padding:12px 18px 18px; color:var(--muted); font-size:12px; }
-    .job-meta b { color:var(--ink); font-weight:650; }
-    .recurring-task + .recurring-task { border-top:1px solid var(--line); }
-    .recurring-last { padding:0 18px 18px; color:var(--muted); font-size:12px; line-height:1.6; }
-    .recurring-last b { color:var(--ink); }
-    .pill { display:inline-flex; align-items:center; min-height:22px; padding:2px 9px; border-radius:99px; background:var(--green-soft); color:var(--green); font-size:11px; font-weight:700; letter-spacing:.02em; white-space:nowrap; }
-    .pill.warn { background:var(--amber-soft); color:var(--amber); }.pill.bad { background:var(--red-soft); color:var(--red); }.pill.slate { background:color-mix(in srgb, var(--line) 55%, transparent); color:var(--slate); }
-    dl { display:grid; grid-template-columns:1fr; gap:13px; margin:0; }
-    dt { font-size:11px; text-transform:uppercase; letter-spacing:.06em; font-weight:700; color:var(--muted); }
-    dd { margin:4px 0 0; font-size:14px; line-height:1.35; font-weight:570; }
-    .safety { padding:10px 18px; border-top:1px solid var(--line); background:color-mix(in srgb, var(--green-soft) 45%, transparent); color:var(--slate); font-size:12px; line-height:1.45; }
-    .table-wrap { overflow:auto; }
-    table { width:100%; border-collapse:collapse; font-size:13px; min-width:640px; }
-    th { text-align:left; padding:10px 16px; color:var(--muted); font-size:11px; letter-spacing:.04em; border-bottom:1px solid var(--line); font-weight:750; white-space:nowrap; }
-    td { padding:12px 16px; border-bottom:1px solid color-mix(in srgb, var(--line) 75%, transparent); vertical-align:top; line-height:1.45; }
-    tbody tr:last-child td { border-bottom:0; }
-    .mono, time { font-family:"SFMono-Regular", Menlo, Consolas, monospace; font-size:12px; font-variant-numeric:tabular-nums; }
-    .muted { color:var(--muted); }.tight { white-space:nowrap; }
-    .message { padding:11px 14px; margin:18px 0 0; border:1px solid var(--amber); color:var(--amber); background:var(--amber-soft); border-radius:8px; font-size:13px; display:none; }
-    .message.show { display:block; }
-    .statusbar { display:flex; align-items:center; gap:0; margin-top:12px; border:1px solid var(--line); border-radius:9px; background:var(--card); overflow:auto; box-shadow:var(--shadow); }
-    .status-item { display:flex; align-items:center; gap:7px; padding:9px 13px; border-right:1px solid var(--line); font-size:12px; color:var(--muted); white-space:nowrap; }
-    .status-item:last-child { border-right:0; }.status-item strong { color:var(--ink); font-size:12px; }
-    .failure-banner { display:flex; gap:12px; align-items:flex-start; margin:14px 0 0; padding:14px 16px; border:1px solid color-mix(in srgb, var(--red) 45%, var(--line)); border-left:5px solid var(--red); border-radius:9px; background:var(--red-soft); }
-    .failure-banner[hidden] { display:none; }
-    .failure-symbol { width:28px; height:28px; flex:0 0 auto; display:grid; place-items:center; border-radius:50%; background:var(--red); color:var(--card); font-weight:800; font-size:16px; }
-    .failure-body { min-width:0; }
-    .failure-title { font-size:15px; font-weight:800; letter-spacing:-.01em; color:var(--ink); }
-    .failure-reason { margin-top:4px; font-size:14px; font-weight:650; line-height:1.4; color:var(--ink); }
-    .failure-detail { margin-top:4px; font-size:13px; line-height:1.5; color:var(--slate); }
-    .failure-action { margin-top:8px; font-size:13px; font-weight:750; color:var(--red); }
-    .failure-adjacent { margin-top:8px; font-size:13px; line-height:1.5; color:var(--ink); }
-    .failure-adjacent b { color:var(--red); }
-    .failure-meta { display:flex; flex-wrap:wrap; gap:5px 14px; margin-top:9px; color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
-    .failure-meta .mono { font-size:11px; }
-    .success-banner { display:flex; gap:12px; align-items:flex-start; margin:14px 0 0; padding:14px 16px; border:1px solid color-mix(in srgb, var(--green) 45%, var(--line)); border-left:5px solid var(--green); border-radius:9px; background:var(--green-soft); }
-    .success-banner[hidden] { display:none; }
-    .success-symbol { width:28px; height:28px; flex:0 0 auto; display:grid; place-items:center; border-radius:50%; background:var(--green); color:var(--card); font-weight:800; font-size:15px; }
-    .success-title { font-size:15px; font-weight:800; letter-spacing:-.01em; color:var(--ink); }
-    .success-reason { margin-top:4px; font-size:14px; font-weight:650; line-height:1.4; color:var(--ink); }
-    .success-meta { display:flex; flex-wrap:wrap; gap:5px 14px; margin-top:6px; color:var(--muted); font-size:11px; }
-    details.secondary { grid-column:1 / -1; border:1px solid var(--line); border-radius:10px; background:var(--card); overflow:hidden; box-shadow:var(--shadow); }
-    details.secondary summary { cursor:pointer; padding:14px 18px; font-size:14px; font-weight:700; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:12px; }
-    details.secondary summary::-webkit-details-marker { display:none; }
-    details.secondary summary::after { content:'+'; color:var(--muted); font-size:18px; font-weight:400; } details.secondary[open] summary::after { content:'−'; }
-    details.secondary .secondary-body { border-top:1px solid var(--line); }
-    @media (max-width:880px) { .grid { grid-template-columns:1fr; }.full{grid-column:auto}.focus-grid{grid-template-columns:1fr}.processes{grid-template-columns:1fr}.process{border-right:0;border-bottom:1px solid var(--line)}.process:last-child{border-bottom:0} details.secondary{grid-column:auto} }
-    @media (max-width:620px) { .wrap{width:min(100% - 24px, 1440px); padding-top:20px} header{align-items:flex-start; flex-direction:column}.refresh{text-align:left} dl{grid-template-columns:1fr}.heading{padding:15px 16px}.job{padding:16px}.status-item{padding:8px 10px} }
-    @media (prefers-reduced-motion:no-preference) { .dot.good { animation:pulse 2s ease-in-out infinite; } @keyframes pulse { 50%{ box-shadow:0 0 0 7px transparent;} } }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+    :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+    .page { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 22px 0 56px; }
+
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+    .topbar h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+    .topbar .venue { color: var(--soft); font-weight: 400; margin-left: 8px; font-size: 14px; }
+    .refresh { display: flex; align-items: center; gap: 12px; color: var(--soft); font-size: 13px; }
+    button.plain {
+      font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 6px; padding: 5px 12px; cursor: pointer;
+    }
+    button.plain:hover { border-color: var(--soft); }
+    button.plain[aria-busy="true"] { color: var(--soft); }
+
+    /* The court: the one bold element on the page */
+    .court {
+      position: relative; overflow: hidden; color: var(--on-court); background: var(--court);
+      border-radius: 14px; padding: 30px 32px 28px;
+      display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 32px;
+    }
+    .court::before {
+      content: ""; position: absolute; inset: 14px; pointer-events: none;
+      border: 2px solid var(--court-line); border-radius: 2px;
+      /* The net sits in the gap between the two columns; short service lines frame the right half. */
+      background:
+        linear-gradient(var(--court-line), var(--court-line)) 57.2% 0 / 2px 100% no-repeat,
+        linear-gradient(var(--court-line), var(--court-line)) 100% 50% / 43% 2px no-repeat;
+      opacity: .45;
+    }
+    .court > * { position: relative; }
+    .court .kicker { font-size: 14px; opacity: .85; }
+    .court .when { margin: 4px 0 2px; font-size: clamp(34px, 5.4vw, 56px); font-weight: 750; line-height: 1.04; letter-spacing: -.03em; }
+    .court .countdown { font-size: 17px; font-weight: 600; color: #ffe08a; }
+    .court .target { margin-top: 20px; font-size: 16px; line-height: 1.5; }
+    .court .target b { font-size: 20px; font-weight: 700; }
+    .court .rule { margin-top: 10px; font-size: 13px; line-height: 1.6; opacity: .85; max-width: 46ch; }
+    .checks { align-self: center; background: var(--court-deep); border-radius: 10px; padding: 16px 18px; }
+    .checks h2 { margin: 0 0 10px; font-size: 14px; font-weight: 600; opacity: .9; }
+    .checks ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+    .checks li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; font-size: 14px; line-height: 1.4; }
+    .checks .mark { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; margin-top: 1px; }
+    .checks .ok .mark { background: #7fd3a9; color: #0b3a2c; }
+    .checks .warn .mark { background: #ffd56b; color: #4a3200; }
+    .checks .bad .mark { background: #ff9d92; color: #4a0e08; }
+    .checks .hint { display: block; font-size: 12px; opacity: .8; }
+    .checks .verdict { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.18); font-size: 13px; font-weight: 600; }
+
+    .alert { margin-top: 14px; border-left: 4px solid var(--bad); background: var(--surface); border-radius: 8px; padding: 12px 16px; font-size: 14px; }
+    .alert[hidden] { display: none; }
+    .alert strong { display: block; }
+    .alert p { margin: 3px 0 0; color: var(--soft); }
+
+    .block { margin-top: 26px; }
+    .block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 2px 10px; }
+    .block-head h2 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+    .block-head .aside { color: var(--soft); font-size: 13px; }
+    .panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+
+    /* Last result */
+    .result-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 18px 20px 4px; }
+    .result-top .verdict { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+    .result-top .verdict.ok { color: var(--ok); }
+    .result-top .verdict.bad { color: var(--bad); }
+    .result-top .date { color: var(--soft); }
+    .result-copy { padding: 0 20px; color: var(--soft); font-size: 14px; max-width: 70ch; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 20px 0; }
+    .chip { border-radius: 6px; padding: 5px 10px; background: var(--booked); color: var(--surface); font-size: 14px; font-weight: 600; }
+    .chip small { font-weight: 400; opacity: .85; margin-left: 6px; }
+
+    .lanes { --name: 64px; padding: 16px 20px 18px; }
+    .axis, .lane { display: grid; grid-template-columns: var(--name) 1fr; align-items: center; }
+    .axis-ticks, .lane-track { position: relative; }
+    .axis-ticks { height: 18px; font-size: 11px; color: var(--soft); }
+    .axis-ticks span { position: absolute; transform: translateX(-50%); }
+    .lane { height: 30px; }
+    .lane + .lane { margin-top: 5px; }
+    .lane-name { font-size: 13px; color: var(--soft); }
+    .lane-track { height: 100%; background: var(--lane); border-radius: 5px; overflow: hidden; }
+    .bar { position: absolute; top: 0; bottom: 0; }
+    .bar.free { background: var(--free); }
+    .bar.booked { background: var(--booked); color: var(--surface); font-size: 12px; font-weight: 600; display: flex; align-items: center; padding-left: 8px; white-space: nowrap; border-radius: 4px; }
+    .lanes-body { position: relative; }
+    .target-band { position: absolute; top: -4px; bottom: -4px; border: 2px dashed var(--target); border-radius: 6px; pointer-events: none; }
+    .legend { display: flex; flex-wrap: wrap; gap: 16px; padding: 0 20px 16px 84px; font-size: 12px; color: var(--soft); }
+    .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+    .legend .k-booked { background: var(--booked); }
+    .legend .k-free { background: var(--free); }
+    .legend .k-target { border: 2px dashed var(--target); background: transparent; }
+    .attempts { border-top: 1px solid var(--rule); padding: 10px 20px 14px; font-size: 13px; color: var(--soft); }
+    .attempts summary { cursor: pointer; }
+    .attempts ol { margin: 8px 0 0; padding-left: 20px; }
+
+    /* Two columns */
+    .split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; margin-top: 26px; }
+    .split .block { margin-top: 0; }
+    .list { list-style: none; margin: 0; padding: 0; }
+    .list li { display: grid; grid-template-columns: 112px 1fr auto; gap: 12px; align-items: baseline; padding: 12px 18px; border-top: 1px solid var(--rule); }
+    .list li:first-child { border-top: 0; }
+    .list .d { font-weight: 600; }
+    .list .d small { display: block; font-weight: 400; color: var(--soft); font-size: 12px; }
+    .list .t { font-size: 15px; }
+    .list .t small { color: var(--soft); margin-left: 8px; }
+    .tag { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--rule); color: var(--soft); white-space: nowrap; }
+    .tag.ok { color: var(--ok); border-color: currentColor; }
+    .tag.warn { color: var(--warn); border-color: currentColor; }
+    .tag.bad { color: var(--bad); border-color: currentColor; }
+    .empty { padding: 18px; color: var(--soft); font-size: 14px; }
+
+    .side-item { padding: 14px 18px; border-top: 1px solid var(--rule); }
+    .side-item:first-child { border-top: 0; }
+    .side-item .name { display: flex; justify-content: space-between; gap: 10px; font-weight: 600; }
+    .side-item p { margin: 4px 0 0; font-size: 13px; color: var(--soft); }
+
+    details.more { margin-top: 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+    details.more > summary { cursor: pointer; padding: 13px 18px; font-weight: 600; display: flex; justify-content: space-between; gap: 10px; }
+    details.more > summary span { color: var(--soft); font-weight: 400; font-size: 13px; }
+    details.more[open] > summary { border-bottom: 1px solid var(--rule); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; font-weight: 600; color: var(--soft); padding: 9px 16px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+    td { padding: 10px 16px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+    tr:last-child td { border-bottom: 0; }
+    .table-wrap { overflow-x: auto; }
+    .muted { color: var(--soft); }
+    footer { margin-top: 22px; color: var(--soft); font-size: 12px; }
+
+    @media (max-width: 820px) {
+      .court { grid-template-columns: 1fr; padding: 24px 22px; gap: 22px; }
+      .court::before { background: none; }
+      .split { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .page { width: calc(100% - 32px); }
+      .topbar .venue { display: none; }
+      .lanes { --name: 46px; }
+      .bar.booked { font-size: 0; padding: 0; }
+      .legend { padding-left: 20px; }
+      .list li { grid-template-columns: 1fr auto; }
+      .list .t { grid-column: 1 / -1; grid-row: 2; }
+    }
   </style>
 </head>
 <body>
-  <main class="wrap">
-    <header>
-      <div>
-        <div class="eyebrow">Wellington North Badminton Stadium</div>
-        <h1>预约监控</h1>
-        <p class="sub">只读 · 定时调度与已核验预约</p>
-      </div>
-      <div class="refresh"><strong id="updated">正在加载状态…</strong><span>每小时自动刷新</span></div>
-    </header>
-    <div id="error" class="message"></div>
-    <div id="system-status" class="statusbar" aria-label="System status"></div>
-    <div id="success" class="success-banner" role="status" aria-live="polite" hidden></div>
-    <div id="failure" class="failure-banner" role="status" aria-live="polite" hidden></div>
-
-    <div class="grid">
-      <section>
-        <div class="heading"><h2>当前任务</h2><span class="note">日期 · 时间 · 开抢</span></div>
-        <div id="active-job"></div>
-        <div class="safety" id="safety"></div>
-      </section>
-
-      <section>
-        <div class="heading"><h2>周期任务</h2><span class="note">每周重复</span></div>
-        <div id="recurring"></div>
-      </section>
-
-      <section>
-        <div class="heading"><h2>即将到来的预约</h2><span class="note" id="upcoming-count"></span></div>
-        <div id="upcoming-bookings"></div>
-      </section>
-
-      <details class="secondary">
-        <summary>历史预约 <span class="note" id="past-count"></span></summary>
-        <div class="secondary-body" id="past-bookings"></div>
-      </details>
-
-      <details class="secondary">
-        <summary>调度活动 <span class="note">最近事件</span></summary>
-        <div class="secondary-body" id="activity"></div>
-      </details>
+  <main class="page">
+    <div class="topbar">
+      <h1>羽毛球场预约<span class="venue">Wellington North Badminton Stadium</span></h1>
+      <div class="refresh"><span id="updated">正在读取状态…</span><button class="plain" id="refresh" type="button">刷新</button></div>
     </div>
+
+    <section class="court" id="hero" aria-live="polite">
+      <div>
+        <div class="kicker">下次开抢</div>
+        <div class="when" id="hero-when">—</div>
+        <div class="countdown" id="hero-countdown"></div>
+        <div class="target" id="hero-target"></div>
+        <div class="rule" id="hero-rule"></div>
+      </div>
+      <div class="checks">
+        <h2>明早能不能正常跑</h2>
+        <ul id="checks"></ul>
+        <div class="verdict" id="checks-verdict"></div>
+      </div>
+    </section>
+
+    <div class="alert" id="alert" role="status" hidden></div>
+
+    <section class="block" aria-labelledby="result-title">
+      <div class="block-head"><h2 id="result-title">上次结果</h2><span class="aside" id="result-aside"></span></div>
+      <div class="panel" id="result"></div>
+    </section>
+
+    <div class="split">
+      <section class="block" aria-labelledby="upcoming-title">
+        <div class="block-head"><h2 id="upcoming-title">即将到来的预约</h2><span class="aside" id="upcoming-aside"></span></div>
+        <div class="panel" id="upcoming"></div>
+      </section>
+      <section class="block" aria-labelledby="other-title">
+        <div class="block-head"><h2 id="other-title">其他任务</h2></div>
+        <div class="panel" id="other"></div>
+      </section>
+    </div>
+
+    <details class="more">
+      <summary>历史预约 <span id="past-aside"></span></summary>
+      <div id="past"></div>
+    </details>
+    <details class="more">
+      <summary>运行记录 <span>最近 24 条</span></summary>
+      <div id="activity"></div>
+    </details>
+
+    <footer id="safety"></footer>
   </main>
+
   <script>
-    const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-    const nzDateParts = (value) => value ? Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone:'Pacific/Auckland', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23' }).formatToParts(new Date(value)).filter(p => p.type !== 'literal').map(p => [p.type, p.value])) : null;
-    const dateTime = (value) => { const p = nzDateParts(value); return p ? `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}` : '—'; };
-    const dateOnly = (value) => value ? String(value) : '—';
-    const weekdayLabel = (value) => {
-      if (!value) return '';
-      try { return new Intl.DateTimeFormat('zh-CN', { timeZone:'UTC', weekday:'short' }).format(new Date(`${value}T12:00:00Z`)); } catch { return ''; }
+    const $ = (selector) => document.querySelector(selector);
+    const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
+    const TZ = 'Pacific/Auckland';
+    const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const WEEKDAY_ZH = { Monday: '周一', Tuesday: '周二', Wednesday: '周三', Thursday: '周四', Friday: '周五', Saturday: '周六', Sunday: '周日' };
+    const PAY = { free: '免费', unpaid_hold: '待支付', paid: '已支付' };
+    const RUN_STATUS = {
+      booking_verified: '已订到', reconciled_verified: '已核对', failed: '失败', late_start: '启动太晚',
+      inspect_complete: '检查完成', watch_complete: '观察完成', watch_timeout: '观察超时',
+      not_due: '未到时间', completed: '已完成', missed: '已错过', running: '运行中', waiting: '等待中',
     };
-    const jobDateLabel = (value) => value ? `${value} ${weekdayLabel(value)}` : '—';
-    const STATUS_LABELS = {
-      completed: '已完成', failed: '失败', running: '运行中', missed: '已错过',
-      not_due: '未到时间', waiting: '等待中', idle: '空闲', scheduled: '已排期',
-      candidate: '候选', no_complete_interval: '无完整时段', watch_complete: '观察完成',
-      watch_timeout: '观察超时', inspect_complete: '检查完成', booking_verified: '预约成功',
-      reconciled_verified: '已核验', late_start: '启动过晚',
-      already_terminal_or_running: '已结束或运行中', payment_required: '需要支付',
-      free: '免费', unpaid_hold: '待支付', paid: '已支付', unknown: '未知',
-    };
-    const statusLabel = (status) => STATUS_LABELS[status] || String(status || '未知').replaceAll('_', ' ');
-    const badge = (status) => {
-      const s = String(status || 'unknown');
-      const cls = /complete|verified|reconciled|free|paid|running/.test(s) ? '' : /fail|miss|timeout|unavailable|late|error/.test(s) ? 'bad' : 'warn';
-      return `<span class="pill ${cls}">${esc(statusLabel(s))}</span>`;
-    };
-    const statusItem = (label, state, kind) => `<span class="status-item"><span class="dot ${kind}"></span><strong>${esc(label)}</strong> ${esc(state)}</span>`;
-    function renderProcesses(processes) {
-      const dispatcher = processes.dispatcher;
-      const dispatcherHealthy = dispatcher.configured && ['running','not running'].includes(dispatcher.state);
-      const lastRunFailed = dispatcherHealthy && Number.isFinite(dispatcher.lastExitCode) && dispatcher.lastExitCode !== 0;
-      const dispatcherLabel = !dispatcherHealthy ? '需要检查' : lastRunFailed ? '上次运行失败' : (dispatcher.state === 'running' ? '检查中' : '空闲');
-      const dispatcherKind = !dispatcherHealthy ? 'bad' : lastRunFailed ? 'warn' : 'good';
-      const chromeGood = processes.chrome.processDetected && processes.chrome.cdpReachable;
-      const runner = processes.runner;
-      document.querySelector('#system-status').innerHTML = [
-        statusItem('调度器', dispatcherLabel, dispatcherKind),
-        statusItem('Chrome', chromeGood ? '已连接' : '未连接', chromeGood ? 'good' : 'bad'),
-        statusItem('运行器', runner.state === 'running' ? '运行中' : '空闲', runner.state === 'running' ? 'good' : 'warn'),
-      ].join('');
+    const courtName = (court) => String(court || '').replace(/^Court (\d)$/, '$1 号场');
+    const toMin = (hhmm) => { const [h, m] = String(hhmm).split(':').map(Number); return h * 60 + m; };
+    const fromMin = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    function parts(iso) {
+      if (!iso) return null;
+      return Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', weekday: 'short' })
+        .formatToParts(new Date(iso)).filter((p) => p.type !== 'literal').map((p) => [p.type, p.value]));
     }
-    function renderSuccess(success) {
-      const el = document.querySelector('#success');
-      if (!success) { el.hidden = true; el.innerHTML = ''; return; }
-      const job = success.job || {};
-      const windowText = job.date ? `${jobDateLabel(job.date)} ${job.start || ''}–${job.end || ''}` : '预约';
-      const meta = [
-        '已从 Hello Club 远端核验',
-        success.court ? `场地 ${success.court}` : '',
-        success.paymentStatus ? `支付 ${statusLabel(success.paymentStatus)}` : '',
-        success.verifiedAt ? `核验于 ${dateTime(success.verifiedAt)}` : '',
-      ].filter(Boolean).map((item) => `<span>${esc(item)}</span>`).join('');
-      el.hidden = false;
-      el.innerHTML = `<div class="success-symbol" aria-hidden="true">✓</div><div class="failure-body"><div class="success-title">上次预约成功</div><div class="success-reason">${esc(windowText)}</div><div class="success-meta">${meta}</div></div>`;
+    const dayLabel = (ymd) => { if (!ymd) return '—'; const d = new Date(`${ymd}T12:00:00Z`); return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日 ${WEEK[d.getUTCDay()]}`; };
+    const stamp = (iso) => { const p = parts(iso); return p ? `${p.month}月${p.day}日 ${p.hour}:${p.minute}` : '—'; };
+    const clock = (iso) => { const p = parts(iso); return p ? `${p.hour}:${p.minute}` : '—'; };
+    const ymdOf = (iso) => { const p = parts(iso); return p ? `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}` : null; };
+    const minutesBetween = (segments) => (segments || []).reduce((t, s) => t + toMin(s.end) - toMin(s.start), 0);
+    const hoursText = (minutes) => minutes % 60 ? `${Math.floor(minutes / 60) ? `${Math.floor(minutes / 60)} 小时 ` : ''}${minutes % 60} 分钟` : `${minutes / 60} 小时`;
+
+    let latest = null;
+
+    function countdown(openAt) {
+      const ms = Date.parse(openAt) - Date.now();
+      if (!Number.isFinite(ms)) return '';
+      if (ms <= 0) return ms > -6 * 60_000 ? '正在抢场' : '';
+      const total = Math.floor(ms / 60_000);
+      const d = Math.floor(total / 1440), h = Math.floor((total % 1440) / 60), m = total % 60;
+      if (d) return `还有 ${d} 天 ${h} 小时`;
+      if (h) return `还有 ${h} 小时 ${m} 分`;
+      return `还有 ${m} 分钟`;
     }
-    function renderFailure(failure) {
-      const el = document.querySelector('#failure');
-      if (!failure) { el.hidden = true; el.innerHTML = ''; return; }
-      const job = failure.job || {};
-      const windowText = job.date ? `${job.date}${job.start && job.end ? ` ${job.start}–${job.end}` : ''}` : '';
-      const meta = [
-        windowText ? `<span>时段 ${esc(windowText)}</span>` : '',
-        job.id ? `<span>任务 <span class="mono">${esc(job.id)}</span></span>` : '',
-        failure.attemptedAt ? `<span>尝试于 ${dateTime(failure.attemptedAt)}</span>` : '',
-        failure.code ? `<span class="mono">错误码 ${esc(failure.code)}</span>` : '',
-      ].filter(Boolean).join('');
-      const adjacent = Array.isArray(failure.adjacent) ? failure.adjacent : [];
-      const adjacentHtml = adjacent.length
-        ? `<div class="failure-adjacent"><b>当天相邻可订：</b>${adjacent.map((item) => `${esc(item.court)} ${esc(item.start)}–${esc(item.end)}`).join('；')}</div>`
-        : failure.adjacentWindow ? '<div class="failure-adjacent">当天相邻时段暂无可订场次。</div>' : '';
-      el.hidden = false;
-      el.innerHTML = `<div class="failure-symbol" aria-hidden="true">!</div><div class="failure-body"><div class="failure-title">${esc(failure.title)}</div><div class="failure-reason">${esc(failure.reason)}</div><div class="failure-detail">${esc(failure.detail)}</div><div class="failure-action">${esc(failure.action)}</div>${adjacentHtml}<div class="failure-meta">${meta}</div></div>`;
+
+    function mainTask(status) {
+      const tasks = status.recurring?.tasks || [];
+      return tasks.find((task) => task.flexible) || tasks[0] || null;
     }
-    function renderRecurring(recurring) {
-      const el = document.querySelector('#recurring');
-      const tasks = recurring?.tasks || [];
-      if (!tasks.length) { el.innerHTML = '<div class="empty">未配置周期任务。</div>'; return; }
-      const weekdayShort = { Monday: '一', Tuesday: '二', Wednesday: '三', Thursday: '四', Friday: '五', Saturday: '六', Sunday: '日' };
-      el.innerHTML = tasks.map((task) => {
-        const schedule = task.weekdays?.length === 1 ? `每周${weekdayShort[task.weekdays[0]] || task.label}` : '每周六、周日';
-        const lastFailed = Number.isFinite(task.lastExitCode) && task.lastExitCode !== 0;
-        const status = !task.configured ? '未安装' : lastFailed ? '上次执行失败' : '已启用';
-        const statusKind = !task.configured ? 'bad' : lastFailed ? 'warn' : '';
-        const next = task.next;
-        const nextText = next ? `${next.local} · 目标 ${next.targetDate}` : '无法计算下一次执行';
-        const last = task.lastReport;
-        let lastHtml = `<div class="recurring-last">尚未执行过；首次运行会为下周${weekdayShort[task.weekdays?.[0]] || '同一天'}下单。</div>`;
-        if (last && last.status === 'success') {
-          lastHtml = `<div class="recurring-last">上次成功：${esc(last.targetDate)} · ${esc(last.court || '—')} · 订单号 <span class="mono">${esc(last.remoteBookingId || '—')}</span></div>`;
-        } else if (last && last.status === 'failed') {
-          const adjacent = last.adjacent?.runs || [];
-          lastHtml = `<div class="recurring-last"><b>上次失败：</b>${esc(last.error || '未知错误')}${adjacent.length ? `<br><b>当天相邻可订：</b>${adjacent.map((run) => `${esc(run.court)} ${esc(run.start)}–${esc(run.end)}`).join('；')}` : '<br>当天相邻时段暂无可订场次。'}</div>`;
-        }
-        return `<div class="recurring-task"><div class="job-summary"><div><div class="job-date">${esc(schedule)}</div><div class="job-time">${esc(task.window.start)}–${esc(task.window.end)}</div></div><div class="job-status"><span class="pill ${statusKind}">${esc(status)}</span></div></div><div class="job-meta"><span>下次运行 <b>${esc(nextText)}</b></span><span>规则 <b>当天 + 7 天</b></span><span><b>仅尝试该时段，不改订</b></span></div>${lastHtml}</div>`;
-      }).join('');
-    }
-    function renderJob(job) {
-      const container = document.querySelector('#active-job');
-      if (!job) { container.innerHTML = '<div class="empty">当前没有待执行预约。</div>'; return; }
-      const status = job.dispatch?.status || 'scheduled';
-      container.innerHTML = `<div class="job-summary"><div><div class="job-date">${esc(jobDateLabel(job.date))}</div><div class="job-time"><time>${esc(job.start)}–${esc(job.end)}</time></div></div><div class="job-status">${badge(status)}</div></div><div class="job-meta"><span>开抢 <b>${dateTime(job.openAt)}</b></span><span>球场 <b>${esc(job.courtOrder.join(' → '))}</b></span><span>参与者 <b>${esc(job.participants.join(' · '))}</b></span><span><b>${esc(job.bookingType)}</b></span></div>`;
-    }
-    function bookingTable(bookings) {
-      return `<div class="table-wrap"><table><thead><tr><th>时间</th><th>球场</th><th>参与者</th><th>支付</th><th>核验</th></tr></thead><tbody>${bookings.map(b => `<tr><td class="tight">${esc(jobDateLabel(b.date))}<br><span class="mono muted">${esc(b.start)}–${esc(b.end)}</span></td><td>${esc(b.court)}<br><span class="muted">${esc(b.bookingType)}</span></td><td>${esc(b.participants.join(' · '))}</td><td>${badge(b.paymentStatus)}</td><td><time>${dateTime(b.verifiedAt)}</time></td></tr>`).join('')}</tbody></table></div>`;
-    }
-    function renderBookings(groups, remoteSync) {
-      const syncState = remoteSync?.state || 'unavailable';
-      const syncLabel = syncState === 'fresh' ? '已同步' : syncState === 'stale' ? '缓存' : '不可用';
-      const syncNote = remoteSync?.syncedAt ? `${syncLabel} ${dateTime(remoteSync.syncedAt)}` : '远端同步不可用';
-      const upcoming = groups?.upcoming || [];
-      const past = groups?.past || [];
-      document.querySelector('#upcoming-count').textContent = `${upcoming.length} 条 · ${syncNote}`;
-      document.querySelector('#past-count').textContent = `${past.length} 条 · ${syncNote}`;
-      const upcomingEl = document.querySelector('#upcoming-bookings');
-      const pastEl = document.querySelector('#past-bookings');
-      if (syncState === 'unavailable') {
-        const message = '<div class="empty">无法读取 Hello Club，本地记录不会显示为当前预约。</div>';
-        upcomingEl.innerHTML = message; pastEl.innerHTML = message; return;
+
+    function renderHero(status) {
+      const task = mainTask(status);
+      const next = task?.next;
+      if (!next) {
+        $('#hero-when').textContent = '没有排期';
+        $('#hero-countdown').textContent = '';
+        $('#hero-target').textContent = '';
+        $('#hero-rule').textContent = '';
+      } else {
+        $('#hero-when').textContent = `${dayLabel(ymdOf(next.openAt))} ${clock(next.openAt)}`;
+        $('#hero-countdown').textContent = countdown(next.openAt);
+        $('#hero-target').innerHTML = `订 <b>${esc(dayLabel(next.targetDate))} ${esc(task.window.start)}–${esc(task.window.end)}</b>`;
+        $('#hero-rule').textContent = task.flexible
+          ? `先找一个场地订满 ${task.window.start}–${task.window.end}；没有就用两个场地拼；还不行就从 ${task.window.start} 起订能连上的最长时间。${task.window.start} 全满时往后找，13:00 前结束。`
+          : `只订 ${task.window.start}–${task.window.end}，按场地优先级找一个完整的场地。`;
       }
-      upcomingEl.innerHTML = upcoming.length ? bookingTable(upcoming) : '<div class="empty">Hello Club 暂未返回即将到来的预约。</div>';
-      pastEl.innerHTML = past.length ? bookingTable(past) : '<div class="empty">Hello Club 暂未返回历史预约。</div>';
+      renderChecks(status, task);
     }
-    const SOURCE_LABELS = { dispatcher: '调度器', runner: '运行器' };
-    function activityDescription(event) {
-      if (event.kind === 'dispatcher') return event.reason ? esc(event.reason) : event.exitCode == null ? '调度器状态更新。' : `退出码 ${esc(event.exitCode)}。`;
-      if (event.selection?.court) return `候选球场：${esc(event.selection.court)} · 已检查 ${esc(event.selection.checked?.join(', ') || '—')}`;
-      if (event.selection?.status) return esc(statusLabel(event.selection.status));
-      if (event.errorCode) return `失败：${esc(event.errorCode)}`;
-      return event.attempts ? `扫描 ${esc(event.attempts)} 次。` : '运行器状态更新。';
+
+    function renderChecks(status, task) {
+      const items = [];
+      const chrome = status.processes?.chrome;
+      items.push(chrome?.cdpReachable
+        ? { kind: 'ok', text: '专用 Chrome 已连接' }
+        : { kind: 'bad', text: '专用 Chrome 没有连接', hint: '打开专用 Chrome，并确认已登录 Hello Club' });
+      const wake = status.wake;
+      const runTime = task?.expectedRunTime;
+      if (!wake?.available) items.push({ kind: 'warn', text: '读不到唤醒设置' });
+      else if (!wake.repeating) items.push({ kind: 'bad', text: '没有设置定时唤醒', hint: 'sudo pmset repeat wakeorpoweron MSU 06:56:00' });
+      else if (runTime && wake.repeating.time >= runTime) items.push({ kind: 'bad', text: `唤醒时间 ${wake.repeating.time} 晚于启动时间 ${runTime}` });
+      else items.push({ kind: 'ok', text: `每周 ${wake.repeating.time} 唤醒 Mac` });
+      if (!task?.configured) items.push({ kind: 'bad', text: '定时任务没有加载', hint: '按 README 用 launchctl bootstrap 加载' });
+      else if (task.loadedRunTime && task.loadedRunTime !== task.expectedRunTime) items.push({ kind: 'warn', text: `已加载的启动时间是 ${task.loadedRunTime}`, hint: `需要重新加载，改成 ${task.expectedRunTime}` });
+      else items.push({ kind: 'ok', text: `${task.expectedRunTime} 启动程序` });
+      if (task?.configured) {
+        items.push(task.keepsAwake
+          ? { kind: 'ok', text: '运行期间不会睡眠' }
+          : { kind: 'warn', text: '防睡眠没有生效', hint: '重新加载定时任务后生效' });
+      }
+      const runner = status.processes?.runner;
+      if (runner?.state === 'running') items.push({ kind: 'ok', text: '预约程序正在运行' });
+      const glyph = { ok: '✓', warn: '!', bad: '✕' };
+      $('#checks').innerHTML = items.map((item) => `<li class="${item.kind}"><span class="mark" aria-hidden="true">${glyph[item.kind]}</span><span>${esc(item.text)}${item.hint ? `<span class="hint">${esc(item.hint)}</span>` : ''}</span></li>`).join('');
+      const worst = items.some((i) => i.kind === 'bad') ? 'bad' : items.some((i) => i.kind === 'warn') ? 'warn' : 'ok';
+      const warnCount = items.filter((i) => i.kind === 'warn').length;
+      $('#checks-verdict').textContent = worst === 'ok' ? '都准备好了。' : worst === 'warn' ? `能跑，但有 ${warnCount} 项建议处理。` : '有问题，明早可能订不到。';
     }
-    function renderActivity(events) {
-      const el = document.querySelector('#activity');
-      if (!events.length) { el.innerHTML = '<div class="empty">暂无调度事件。</div>'; return; }
-      el.innerHTML = `<div class="table-wrap"><table><thead><tr><th>时间</th><th>来源</th><th>任务</th><th>状态</th><th>详情</th></tr></thead><tbody>${events.map(e => `<tr><td class="tight"><time>${dateTime(e.timestamp)}</time></td><td>${esc(SOURCE_LABELS[e.kind] || e.kind)}</td><td class="mono">${esc(e.jobId || '—')}</td><td>${badge(e.status)}</td><td class="muted">${activityDescription(e)}</td></tr>`).join('')}</tbody></table></div>`;
+
+    function lanesHtml({ window, segments = [], free = [], flexible }) {
+      const startMin = Math.max(0, toMin(window.start) - 60);
+      const endMin = flexible ? Math.max(toMin(window.end) + 60, 13 * 60) : toMin(window.end) + 60;
+      const span = endMin - startMin;
+      const pct = (minutes) => `${((Math.min(Math.max(minutes, startMin), endMin) - startMin) / span) * 100}%`;
+      const width = (a, b) => `${((Math.min(b, endMin) - Math.max(a, startMin)) / span) * 100}%`;
+      const ticks = [];
+      for (let m = Math.ceil(startMin / 60) * 60; m <= endMin; m += 60) ticks.push(`<span style="left:${pct(m)}">${fromMin(m)}</span>`);
+      const courts = ['Court 1', 'Court 2', 'Court 3', 'Court 4', 'Court 5', 'Court 6'];
+      const lanes = courts.map((court) => {
+        const freeBars = free.filter((r) => r.court === court && toMin(r.end) > startMin && toMin(r.start) < endMin)
+          .map((r) => `<span class="bar free" style="left:${pct(toMin(r.start))};width:${width(toMin(r.start), toMin(r.end))}"></span>`).join('');
+        const bookedBars = segments.filter((s) => s.court === court)
+          .map((s) => `<span class="bar booked" style="left:${pct(toMin(s.start))};width:${width(toMin(s.start), toMin(s.end))}">${esc(s.start)}–${esc(s.end)}</span>`).join('');
+        return `<div class="lane"><span class="lane-name">${esc(courtName(court))}</span><div class="lane-track">${freeBars}${bookedBars}</div></div>`;
+      }).join('');
+      const band = `<div class="target-band" style="left:calc(var(--name) + (100% - var(--name)) * ${(toMin(window.start) - startMin) / span});width:calc((100% - var(--name)) * ${(toMin(window.end) - toMin(window.start)) / span})"></div>`;
+      return `<div class="lanes"><div class="axis"><span></span><div class="axis-ticks">${ticks.join('')}</div></div><div class="lanes-body">${lanes}${band}</div></div>
+        <div class="legend"><span><i class="k-booked"></i>订到的时段</span>${free.length ? '<span><i class="k-free"></i>失败后扫描到的空位</span>' : ''}<span><i class="k-target"></i>目标时段</span></div>`;
     }
+
+    function renderResult(status) {
+      const task = mainTask(status);
+      const report = task?.lastReport;
+      const el = $('#result');
+      if (!report) {
+        $('#result-aside').textContent = '';
+        el.innerHTML = '<div class="empty">还没有运行过。第一次运行后，这里会画出订到的场地和时段。</div>';
+        return;
+      }
+      const window = report.window || task.window;
+      $('#result-aside').textContent = `${task.label}任务`;
+      const segments = report.segments || (report.court ? [{ court: report.court, start: window.start, end: window.end, paymentStatus: report.paymentStatus }] : []);
+      const attempts = Array.isArray(report.attempts) ? report.attempts : [];
+      let top, copy = '';
+      if (report.status === 'success') {
+        const minutes = minutesBetween(segments);
+        const tierText = { full_window: segments.length > 1 ? '两个场地拼满了目标时段' : '一个场地订满了目标时段', longest_from_start: `没能订满，订到了从 ${window.start} 起最长的时间`, later_start: `${window.start} 全满，订了之后最长的时间` }[report.tier] || '';
+        top = `<span class="verdict ok">订到了 ${esc(hoursText(minutes))}</span><span class="date">${esc(dayLabel(report.targetDate))}</span>`;
+        copy = tierText;
+      } else {
+        const ex = report.explanation;
+        top = `<span class="verdict bad">没有订到</span><span class="date">${esc(dayLabel(report.targetDate))}</span>`;
+        copy = ex ? `${ex.reason} ${ex.action}` : (report.error || '');
+      }
+      const chips = segments.length ? `<div class="chips">${segments.map((s) => `<span class="chip">${esc(courtName(s.court))} ${esc(s.start)}–${esc(s.end)}${s.paymentStatus ? `<small>${esc(PAY[s.paymentStatus] || '')}</small>` : ''}</span>`).join('')}</div>` : '';
+      const attemptsHtml = attempts.length ? `<details class="attempts"><summary>重试了 ${attempts.length} 次</summary><ol>${attempts.map((a) => `<li>${esc(clock(a.at))} ${esc(a.error || '')}</li>`).join('')}</ol></details>` : '';
+      el.innerHTML = `<div class="result-top">${top}</div>${copy ? `<p class="result-copy">${esc(copy)}</p>` : ''}${chips}
+        ${lanesHtml({ window, segments: report.status === 'success' ? segments : [], free: report.adjacent?.runs || [], flexible: task.flexible })}${attemptsHtml}`;
+    }
+
+    function renderAlert(status) {
+      const el = $('#alert');
+      const failure = status.lastFailure;
+      const fromTask = status.lastRun?.taskId;
+      if (!failure || fromTask) { el.hidden = true; el.innerHTML = ''; return; }
+      const job = failure.job || {};
+      el.hidden = false;
+      el.innerHTML = `<strong>${esc(failure.title)}${job.date ? `：${esc(dayLabel(job.date))} ${esc(job.start || '')}–${esc(job.end || '')}` : ''}</strong><p>${esc(failure.reason)} ${esc(failure.action)}</p>`;
+    }
+
+    function bookingList(bookings) {
+      return `<ul class="list">${bookings.map((b) => `<li><span class="d">${esc(dayLabel(b.date))}</span><span class="t">${esc(b.start)}–${esc(b.end)}<small>${esc(courtName(b.court))}</small></span><span class="tag ${b.paymentStatus === 'unpaid_hold' ? 'warn' : 'ok'}">${esc(PAY[b.paymentStatus] || b.paymentStatus)}</span></li>`).join('')}</ul>`;
+    }
+
+    function renderBookings(status) {
+      const sync = status.remoteSync || {};
+      const syncText = sync.state === 'unavailable' || !sync.syncedAt ? '读不到 Hello Club' : `${sync.state === 'fresh' ? '同步于' : '缓存于'} ${stamp(sync.syncedAt)}`;
+      const upcoming = status.bookings?.upcoming || [];
+      const past = status.bookings?.past || [];
+      $('#upcoming-aside').textContent = syncText;
+      $('#past-aside').textContent = `${past.length} 条`;
+      if (sync.state === 'unavailable') {
+        $('#upcoming').innerHTML = '<div class="empty">现在读不到 Hello Club 日历。只有远端日历确认过的预约才会显示在这里。</div>';
+        $('#past').innerHTML = '<div class="empty">读不到 Hello Club 日历。</div>';
+        return;
+      }
+      $('#upcoming').innerHTML = upcoming.length ? bookingList(upcoming) : '<div class="empty">Hello Club 上没有即将到来的预约。</div>';
+      $('#past').innerHTML = past.length ? bookingList(past) : '<div class="empty">没有历史预约。</div>';
+    }
+
+    function renderOther(status) {
+      const tasks = (status.recurring?.tasks || []).filter((task) => task !== mainTask(status));
+      const rows = tasks.map((task) => {
+        const days = (task.weekdays || []).map((d) => WEEKDAY_ZH[d] || d).join('、');
+        const last = task.lastReport;
+        const lastText = !last ? '还没有运行过' : last.status === 'success'
+          ? `上次 ${dayLabel(last.targetDate)} 订到 ${courtName(last.court || last.segments?.[0]?.court)}`
+          : `上次 ${dayLabel(last.targetDate)} 没订到`;
+        const tag = !task.configured ? '<span class="tag bad">未加载</span>' : last?.status === 'failed' ? '<span class="tag warn">上次失败</span>' : '<span class="tag ok">已启用</span>';
+        return `<div class="side-item"><div class="name"><span>${esc(days)} ${esc(task.window.start)}–${esc(task.window.end)}</span>${tag}</div><p>${task.next ? `下次 ${esc(dayLabel(ymdOf(task.next.openAt)))} 07:00 开抢，订 ${esc(dayLabel(task.next.targetDate))}` : ''}</p><p>${esc(lastText)}</p></div>`;
+      });
+      const job = status.activeJob;
+      if (job) {
+        rows.unshift(`<div class="side-item"><div class="name"><span>单次 ${esc(dayLabel(job.date))} ${esc(job.start)}–${esc(job.end)}</span><span class="tag">${esc(RUN_STATUS[job.dispatch?.status] || '已排期')}</span></div><p>${esc(stamp(job.openAt))} 开抢</p></div>`);
+      }
+      $('#other').innerHTML = rows.length ? rows.join('') : '<div class="empty">没有其他任务。</div>';
+    }
+
+    function activityText(event) {
+      if (event.kind === 'dispatcher') return event.reason || (event.exitCode == null ? '' : `退出码 ${event.exitCode}`);
+      const segments = event.selection?.segments;
+      if (segments?.length) return segments.map((s) => `${courtName(s.court)} ${s.start}–${s.end}`).join('，');
+      if (event.selection?.court) return courtName(event.selection.court);
+      if (event.errorCode) return event.errorCode;
+      return '';
+    }
+
+    function renderActivity(status) {
+      const events = status.activity || [];
+      if (!events.length) { $('#activity').innerHTML = '<div class="empty">没有运行记录。</div>'; return; }
+      $('#activity').innerHTML = `<div class="table-wrap"><table><thead><tr><th>时间</th><th>任务</th><th>结果</th><th>详情</th></tr></thead><tbody>${events.map((e) => {
+        const ok = ['booking_verified', 'reconciled_verified', 'completed'].includes(e.status);
+        const bad = ['failed', 'missed', 'late_start', 'watch_timeout'].includes(e.status);
+        return `<tr><td>${esc(stamp(e.timestamp))}</td><td class="muted">${esc(e.taskId === 'weekend' ? '周末' : e.taskId === 'monday' ? '周一' : e.jobId || (e.kind === 'dispatcher' ? '调度器' : '—'))}</td><td><span class="tag ${ok ? 'ok' : bad ? 'bad' : ''}">${esc(RUN_STATUS[e.status] || e.status)}</span></td><td class="muted">${esc(activityText(e))}</td></tr>`;
+      }).join('')}</tbody></table></div>`;
+    }
+
+    function render(status) {
+      latest = status;
+      renderHero(status); renderAlert(status); renderResult(status); renderBookings(status); renderOther(status); renderActivity(status);
+      $('#safety').textContent = status.safety?.message || '';
+      $('#updated').textContent = `更新于 ${clock(status.generatedAt)}`;
+    }
+
     async function refresh() {
-      const error = document.querySelector('#error');
+      const button = $('#refresh');
+      button.setAttribute('aria-busy', 'true');
+      button.textContent = '刷新中';
       try {
-        const response = await fetch('/api/status', { cache:'no-store' });
-        if (!response.ok) throw new Error('Status endpoint returned an error');
-        const status = await response.json();
-        renderProcesses(status.processes); renderSuccess(status.lastSuccess); renderFailure(status.lastFailure); renderJob(status.activeJob); renderRecurring(status.recurring); renderBookings(status.bookings, status.remoteSync); renderActivity(status.activity);
-        document.querySelector('#safety').textContent = status.safety.message;
-        document.querySelector('#updated').textContent = `更新于 ${dateTime(status.generatedAt)}`;
-        error.classList.remove('show');
-      } catch (err) { error.textContent = '实时状态暂时不可用，页面会自动重试。'; error.classList.add('show'); }
+        const response = await fetch('/api/status', { cache: 'no-store' });
+        if (!response.ok) throw new Error('status');
+        render(await response.json());
+      } catch {
+        $('#updated').textContent = '读不到本地状态服务，稍后自动重试';
+      } finally {
+        button.removeAttribute('aria-busy');
+        button.textContent = '刷新';
+      }
     }
+
     if (location.protocol === 'file:') {
-      const error = document.querySelector('#error');
-      error.textContent = '此面板需要本地状态服务，请通过 http://127.0.0.1:8787 打开，不要直接打开 control-panel.html。';
-      error.classList.add('show');
-      document.querySelector('#updated').textContent = '请通过本地服务打开';
+      $('#updated').textContent = '请通过 http://127.0.0.1:8787 打开';
     } else {
-      refresh(); setInterval(refresh, 3_600_000);
+      $('#refresh').addEventListener('click', refresh);
+      refresh();
+      setInterval(refresh, 60_000);
+      setInterval(() => { if (latest) renderHero(latest); }, 20_000);
     }
   </script>
 </body>

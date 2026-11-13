@@ -58,15 +58,15 @@
     .court {
       position: relative; overflow: hidden; color: var(--on-court); background: var(--court);
       border-radius: 14px; padding: 30px 32px 28px;
-      display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 32px;
+      display: block;
     }
     .court::before {
       content: ""; position: absolute; inset: 14px; pointer-events: none;
       border: 2px solid var(--court-line); border-radius: 2px;
       /* The net sits in the gap between the two columns; short service lines frame the right half. */
       background:
-        linear-gradient(var(--court-line), var(--court-line)) 57.2% 0 / 2px 100% no-repeat,
-        linear-gradient(var(--court-line), var(--court-line)) 100% 50% / 43% 2px no-repeat;
+        linear-gradient(var(--court-line), var(--court-line)) 78% 0 / 2px 100% no-repeat,
+        linear-gradient(var(--court-line), var(--court-line)) 100% 50% / 22% 2px no-repeat;
       opacity: .45;
     }
     .court > * { position: relative; }
@@ -135,6 +135,20 @@
     .attempts ol { margin: 8px 0 0; padding-left: 20px; }
 
     /* Two columns */
+    .court .issues { margin: 18px 0 0; padding: 10px 14px; border-radius: 8px; background: rgba(0, 0, 0, .22); font-size: 14px; max-width: 70%; }
+    .court .issues[hidden] { display: none; }
+    .court .issues ul { margin: 4px 0 0; padding-left: 18px; }
+    .court .issues small { display: block; opacity: .8; }
+    .task { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 16px 18px; border-top: 1px solid var(--rule); }
+    .task:first-child { border-top: 0; }
+    .task .what { font-size: 16px; font-weight: 650; }
+    .task .how { grid-column: 1; color: var(--soft); font-size: 14px; }
+    .task .next { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-size: 14px; color: var(--soft); align-self: center; }
+    .task .next b { display: block; color: var(--ink); font-size: 15px; }
+    .secondary { margin-top: 36px; }
+    .secondary details.more { background: transparent; }
+    .secondary details.more > summary { font-weight: 500; color: var(--soft); }
+    .secondary details.more[open] { background: var(--surface); }
     .split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; margin-top: 26px; }
     .split .block { margin-top: 0; }
     .list { list-style: none; margin: 0; padding: 0; }
@@ -168,7 +182,11 @@
     footer { margin-top: 22px; color: var(--soft); font-size: 12px; }
 
     @media (max-width: 820px) {
-      .court { grid-template-columns: 1fr; padding: 24px 22px; gap: 22px; }
+      .court { padding: 24px 22px; }
+      .court .issues { max-width: none; }
+      .task { grid-template-columns: 1fr; }
+      .task .next { grid-column: 1; grid-row: auto; text-align: left; }
+      .task .next b { display: inline; margin-left: 6px; }
       .court::before { background: none; }
       .split { grid-template-columns: 1fr; }
     }
@@ -191,46 +209,37 @@
     </div>
 
     <section class="court" id="hero" aria-live="polite">
-      <div>
-        <div class="kicker">下次开抢</div>
-        <div class="when" id="hero-when">—</div>
-        <div class="countdown" id="hero-countdown"></div>
-        <div class="target" id="hero-target"></div>
-        <div class="rule" id="hero-rule"></div>
-      </div>
-      <div class="checks">
-        <h2>明早能不能正常跑</h2>
-        <ul id="checks"></ul>
-        <div class="verdict" id="checks-verdict"></div>
-      </div>
+      <div class="kicker">下次开抢</div>
+      <div class="when" id="hero-when">—</div>
+      <div class="countdown" id="hero-countdown"></div>
+      <div class="target" id="hero-target"></div>
+      <div class="issues" id="issues" hidden></div>
     </section>
 
-    <div class="alert" id="alert" role="status" hidden></div>
-
-    <section class="block" aria-labelledby="result-title">
-      <div class="block-head"><h2 id="result-title">上次结果</h2><span class="aside" id="result-aside"></span></div>
-      <div class="panel" id="result"></div>
+    <section class="block" aria-labelledby="tasks-title">
+      <div class="block-head"><h2 id="tasks-title">周期开抢任务</h2><span class="aside">每次都订 7 天后的同一天</span></div>
+      <div class="panel" id="tasks"></div>
     </section>
 
-    <div class="split">
-      <section class="block" aria-labelledby="upcoming-title">
-        <div class="block-head"><h2 id="upcoming-title">即将到来的预约</h2><span class="aside" id="upcoming-aside"></span></div>
-        <div class="panel" id="upcoming"></div>
-      </section>
-      <section class="block" aria-labelledby="other-title">
-        <div class="block-head"><h2 id="other-title">其他任务</h2></div>
-        <div class="panel" id="other"></div>
-      </section>
+    <section class="block" aria-labelledby="upcoming-title">
+      <div class="block-head"><h2 id="upcoming-title">即将到来的预约</h2><span class="aside" id="upcoming-aside"></span></div>
+      <div class="panel" id="upcoming"></div>
+    </section>
+
+    <div class="secondary">
+      <details class="more">
+        <summary>上次结果 <span id="result-aside"></span></summary>
+        <div id="result"></div>
+      </details>
+      <details class="more">
+        <summary>历史预约 <span id="past-aside"></span></summary>
+        <div id="past"></div>
+      </details>
+      <details class="more">
+        <summary>运行记录 <span>最近 24 条</span></summary>
+        <div id="activity"></div>
+      </details>
     </div>
-
-    <details class="more">
-      <summary>历史预约 <span id="past-aside"></span></summary>
-      <div id="past"></div>
-    </details>
-    <details class="more">
-      <summary>运行记录 <span>最近 24 条</span></summary>
-      <div id="activity"></div>
-    </details>
 
     <footer id="safety"></footer>
   </main>
@@ -280,52 +289,46 @@
       return tasks.find((task) => task.flexible) || tasks[0] || null;
     }
 
+    /** Every upcoming opening (recurring tasks plus a one-off job), soonest first. */
+    function openings(status) {
+      const list = (status.recurring?.tasks || []).filter((task) => task.next?.openAt).map((task) => ({
+        openAt: task.next.openAt, date: task.next.targetDate, start: task.window.start, end: task.window.end, task,
+      }));
+      const job = status.activeJob;
+      if (job?.openAt) list.push({ openAt: job.openAt, date: job.date, start: job.start, end: job.end, task: null });
+      return list.filter((item) => Date.parse(item.openAt) > Date.now() - 6 * 60_000)
+        .sort((a, b) => Date.parse(a.openAt) - Date.parse(b.openAt));
+    }
+
     function renderHero(status) {
-      const task = mainTask(status);
-      const next = task?.next;
+      const next = openings(status)[0];
       if (!next) {
         $('#hero-when').textContent = '没有排期';
         $('#hero-countdown').textContent = '';
         $('#hero-target').textContent = '';
-        $('#hero-rule').textContent = '';
       } else {
         $('#hero-when').textContent = `${dayLabel(ymdOf(next.openAt))} ${clock(next.openAt)}`;
         $('#hero-countdown').textContent = countdown(next.openAt);
-        $('#hero-target').innerHTML = `订 <b>${esc(dayLabel(next.targetDate))} ${esc(task.window.start)}–${esc(task.window.end)}</b>`;
-        $('#hero-rule').textContent = task.flexible
-          ? `先找一个场地订满 ${task.window.start}–${task.window.end}；没有就用两个场地拼；还不行就从 ${task.window.start} 起订能连上的最长时间。${task.window.start} 全满时往后找，13:00 前结束。`
-          : `只订 ${task.window.start}–${task.window.end}，按场地优先级找一个完整的场地。`;
+        $('#hero-target').innerHTML = `订 <b>${esc(dayLabel(next.date))} ${esc(next.start)}–${esc(next.end)}</b>`;
       }
-      renderChecks(status, task);
+      renderIssues(status, next?.task);
     }
 
-    function renderChecks(status, task) {
-      const items = [];
-      const chrome = status.processes?.chrome;
-      items.push(chrome?.cdpReachable
-        ? { kind: 'ok', text: '专用 Chrome 已连接' }
-        : { kind: 'bad', text: '专用 Chrome 没有连接', hint: '打开专用 Chrome，并确认已登录 Hello Club' });
+    // Shown only when something would stop the next opening from running.
+    function renderIssues(status, task) {
+      const issues = [];
+      if (!status.processes?.chrome?.cdpReachable) issues.push({ text: '专用 Chrome 没有打开', hint: '打开专用 Chrome，并确认已登录 Hello Club' });
       const wake = status.wake;
-      const runTime = task?.expectedRunTime;
-      if (!wake?.available) items.push({ kind: 'warn', text: '读不到唤醒设置' });
-      else if (!wake.repeating) items.push({ kind: 'bad', text: '没有设置定时唤醒', hint: 'sudo pmset repeat wakeorpoweron MSU 06:56:00' });
-      else if (runTime && wake.repeating.time >= runTime) items.push({ kind: 'bad', text: `唤醒时间 ${wake.repeating.time} 晚于启动时间 ${runTime}` });
-      else items.push({ kind: 'ok', text: `每周 ${wake.repeating.time} 唤醒 Mac` });
-      if (!task?.configured) items.push({ kind: 'bad', text: '定时任务没有加载', hint: '按 README 用 launchctl bootstrap 加载' });
-      else if (task.loadedRunTime && task.loadedRunTime !== task.expectedRunTime) items.push({ kind: 'warn', text: `已加载的启动时间是 ${task.loadedRunTime}`, hint: `需要重新加载，改成 ${task.expectedRunTime}` });
-      else items.push({ kind: 'ok', text: `${task.expectedRunTime} 启动程序` });
-      if (task?.configured) {
-        items.push(task.keepsAwake
-          ? { kind: 'ok', text: '运行期间不会睡眠' }
-          : { kind: 'warn', text: '防睡眠没有生效', hint: '重新加载定时任务后生效' });
+      if (wake?.available && !wake.repeating) issues.push({ text: 'Mac 没有设置定时唤醒', hint: 'sudo pmset repeat wakeorpoweron MSU 06:56:00' });
+      else if (wake?.repeating && task?.expectedRunTime && wake.repeating.time >= task.expectedRunTime) issues.push({ text: `唤醒时间 ${wake.repeating.time} 晚于启动时间 ${task.expectedRunTime}`, hint: '把唤醒改到启动前' });
+      if (task) {
+        if (!task.configured) issues.push({ text: `${task.label}任务没有加载`, hint: '按 README 用 launchctl bootstrap 加载' });
+        else if (task.loadedRunTime && task.loadedRunTime !== task.expectedRunTime) issues.push({ text: `${task.label}任务还是旧设置（${task.loadedRunTime} 启动）`, hint: '重新加载定时任务' });
+        else if (task.keepsAwake === false) issues.push({ text: `${task.label}任务运行时可能会睡眠`, hint: '重新加载定时任务' });
       }
-      const runner = status.processes?.runner;
-      if (runner?.state === 'running') items.push({ kind: 'ok', text: '预约程序正在运行' });
-      const glyph = { ok: '✓', warn: '!', bad: '✕' };
-      $('#checks').innerHTML = items.map((item) => `<li class="${item.kind}"><span class="mark" aria-hidden="true">${glyph[item.kind]}</span><span>${esc(item.text)}${item.hint ? `<span class="hint">${esc(item.hint)}</span>` : ''}</span></li>`).join('');
-      const worst = items.some((i) => i.kind === 'bad') ? 'bad' : items.some((i) => i.kind === 'warn') ? 'warn' : 'ok';
-      const warnCount = items.filter((i) => i.kind === 'warn').length;
-      $('#checks-verdict').textContent = worst === 'ok' ? '都准备好了。' : worst === 'warn' ? `能跑，但有 ${warnCount} 项建议处理。` : '有问题，明早可能订不到。';
+      const el = $('#issues');
+      el.hidden = !issues.length;
+      el.innerHTML = issues.length ? `<strong>开抢前需要处理</strong><ul>${issues.map((i) => `<li>${esc(i.text)}<small>${esc(i.hint)}</small></li>`).join('')}</ul>` : '';
     }
 
     function lanesHtml({ window, segments = [], free = [], flexible }) {
@@ -369,7 +372,7 @@
         return;
       }
       const window = report.window || task.window;
-      $('#result-aside').textContent = `${task.label}任务`;
+      $('#result-aside').textContent = `${dayLabel(report.targetDate)} ${report.status === 'success' ? '订到了' : '没订到'}`;
       const segments = report.segments || (report.court ? [{ court: report.court, start: window.start, end: window.end, paymentStatus: report.paymentStatus }] : []);
       const attempts = Array.isArray(report.attempts) ? report.attempts : [];
       let top, copy = '', diagnosis = '';
@@ -388,16 +391,6 @@
       const attemptsHtml = attempts.length ? `<details class="attempts"><summary>重试了 ${attempts.length} 次</summary><ol>${attempts.map((a) => `<li>${esc(clock(a.at))} ${esc(a.error || '')}</li>`).join('')}</ol></details>` : '';
       el.innerHTML = `<div class="result-top">${top}</div>${copy ? `<p class="result-copy">${esc(copy)}</p>` : ''}${diagnosis ? `<p class="diagnosis">${esc(diagnosis)}</p>` : ''}${chips}
         ${lanesHtml({ window, segments: report.status === 'success' ? segments : [], free: report.adjacent?.runs || [], flexible: task.flexible })}${attemptsHtml}`;
-    }
-
-    function renderAlert(status) {
-      const el = $('#alert');
-      const failure = status.lastFailure;
-      const fromTask = status.lastRun?.taskId;
-      if (!failure || fromTask) { el.hidden = true; el.innerHTML = ''; return; }
-      const job = failure.job || {};
-      el.hidden = false;
-      el.innerHTML = `<strong>${esc(failure.title)}${job.date ? `：${esc(dayLabel(job.date))} ${esc(job.start || '')}–${esc(job.end || '')}` : ''}</strong><p>${esc(failure.reason)} ${esc(failure.action)}</p>`;
     }
 
     function bookingList(bookings) {
@@ -420,22 +413,21 @@
       $('#past').innerHTML = past.length ? bookingList(past) : '<div class="empty">没有历史预约。</div>';
     }
 
-    function renderOther(status) {
-      const tasks = (status.recurring?.tasks || []).filter((task) => task !== mainTask(status));
+    function renderTasks(status) {
+      const tasks = [...(status.recurring?.tasks || [])]
+        .sort((a, b) => (Date.parse(a.next?.openAt) || Infinity) - (Date.parse(b.next?.openAt) || Infinity));
+      const job = status.activeJob;
       const rows = tasks.map((task) => {
         const days = (task.weekdays || []).map((d) => WEEKDAY_ZH[d] || d).join('、');
-        const last = task.lastReport;
-        const lastText = !last ? '还没有运行过' : last.status === 'success'
-          ? `上次 ${dayLabel(last.targetDate)} 订到 ${courtName(last.court || last.segments?.[0]?.court)}`
-          : `上次 ${dayLabel(last.targetDate)} 没订到`;
-        const tag = !task.configured ? '<span class="tag bad">未加载</span>' : last?.status === 'failed' ? '<span class="tag warn">上次失败</span>' : '<span class="tag ok">已启用</span>';
-        return `<div class="side-item"><div class="name"><span>${esc(days)} ${esc(task.window.start)}–${esc(task.window.end)}</span>${tag}</div><p>${task.next ? `下次 ${esc(dayLabel(ymdOf(task.next.openAt)))} 07:00 开抢，订 ${esc(dayLabel(task.next.targetDate))}` : ''}</p><p>${esc(lastText)}</p></div>`;
+        const how = task.flexible
+          ? '优先一个场地订满；不行就两个场地拼；再不行订能连上的最长时间'
+          : '按场地优先级找一个完整的场地';
+        return `<div class="task"><div class="what">每${esc(days)} 07:00 开抢，订 ${esc(task.window.start)}–${esc(task.window.end)}</div><div class="how">${esc(how)}</div><div class="next">下次开抢<b>${task.next?.openAt ? `${esc(dayLabel(ymdOf(task.next.openAt)))} ${esc(clock(task.next.openAt))}` : '—'}</b></div></div>`;
       });
-      const job = status.activeJob;
       if (job) {
-        rows.unshift(`<div class="side-item"><div class="name"><span>单次 ${esc(dayLabel(job.date))} ${esc(job.start)}–${esc(job.end)}</span><span class="tag">${esc(RUN_STATUS[job.dispatch?.status] || '已排期')}</span></div><p>${esc(stamp(job.openAt))} 开抢</p></div>`);
+        rows.push(`<div class="task"><div class="what">单次：订 ${esc(dayLabel(job.date))} ${esc(job.start)}–${esc(job.end)}</div><div class="how">只运行一次</div><div class="next">开抢<b>${esc(stamp(job.openAt))}</b></div></div>`);
       }
-      $('#other').innerHTML = rows.length ? rows.join('') : '<div class="empty">没有其他任务。</div>';
+      $('#tasks').innerHTML = rows.length ? rows.join('') : '<div class="empty">没有开抢任务。</div>';
     }
 
     function activityText(event) {
@@ -459,7 +451,7 @@
 
     function render(status) {
       latest = status;
-      renderHero(status); renderAlert(status); renderResult(status); renderBookings(status); renderOther(status); renderActivity(status);
+      renderHero(status); renderTasks(status); renderBookings(status); renderResult(status); renderActivity(status);
       $('#safety').textContent = status.safety?.message || '';
       $('#updated').textContent = `更新于 ${clock(status.generatedAt)}`;
     }

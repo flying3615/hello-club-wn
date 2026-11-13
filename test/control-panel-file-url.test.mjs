@@ -11,13 +11,12 @@ test('gives an actionable message when opened directly as a file', async () => {
   assert.match(html, /请通过 http:\/\/127\.0\.0\.1:8787 打开/);
 });
 
-test('leads with the next opening and its readiness, then the last result', async () => {
+test('leads with the next opening, recurring tasks and upcoming bookings; details stay collapsed below', async () => {
   const html = await fs.readFile(panel, 'utf8');
-  const hero = html.indexOf('id="hero"');
-  const checks = html.indexOf('明早能不能正常跑');
-  const result = html.indexOf('id="result"');
-  const upcoming = html.indexOf('id="upcoming"');
-  assert.ok(hero > 0 && hero < checks && checks < result && result < upcoming);
+  const order = ['id="hero"', 'id="tasks"', 'id="upcoming"', 'id="result"', 'id="past"', 'id="activity"'].map((needle) => html.indexOf(needle));
+  assert.ok(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1])), String(order));
+  assert.match(html, /<details class="more">\s*<summary>上次结果/);
+  assert.doesNotMatch(html, /<details class="more" open/);
   assert.match(html, /function lanesHtml\(/);
   assert.match(html, /setInterval\(refresh, 60_000\)/);
   assert.doesNotMatch(html, /<form|method="post"/i);

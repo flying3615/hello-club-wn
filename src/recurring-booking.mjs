@@ -16,6 +16,16 @@ const STATE_DIR = path.join(PROJECT_DIR, 'state');
 const ACTIVE_JOB_FILE = path.join(STATE_DIR, 'jobs', 'active.json');
 const AUCKLAND_ZONE = 'Pacific/Auckland';
 const DEFAULT_PARTICIPANTS = ['Yufei Liu', 'Zijia Liu'];
+const TRANSIENT_BROWSER_ERROR = /Target page, context or browser has been closed|Target closed|browser has been closed|ECONNREFUSED|connect.*CDP/i;
+const RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
+
+export function isTransientBrowserError(error) {
+  return TRANSIENT_BROWSER_ERROR.test(String(error?.message || error || ''));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function aucklandParts(value) {
   if (!(value instanceof Date) || Number.isNaN(value.valueOf())) throw new Error('A valid current time is required');
@@ -143,13 +153,23 @@ export async function runRecurringBooking({
   let result = null;
   let failure = null;
   const startedAt = new Date().toISOString();
-  try {
-    result = await runLaunchdJob({ jobFile, mode: 'execute' });
-  } catch (error) {
-    failure = error;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      result = await runLaunchdJob({ jobFile, mode: 'execute' });
+      failure = null;
+      break;
+    } catch (error) {
+      failure = error;
+      const canRetry = isTransientBrowserError(error)
+        && attempt < RETRY_DELAYS_MS.length
+        && Date.now() < Date.parse(job.latestStart);
+      if (!canRetry) break;
+      await sleep(RETRY_DELAYS_MS[attempt]);
+    }
   }
 
-  if (result) {
+  const verifiedStatus = result && ['booking_verified', 'reconciled_verified'].includes(result.status);
+  if (verifiedStatus) {
     const court = result.selection?.court || null;
     const remote = court ? await findRemoteBooking(job, court) : null;
     await appendRun({
@@ -180,7 +200,7 @@ export async function runRecurringBooking({
     return { status: 'success', task, job, court, remote, report };
   }
 
-  const message = String(failure?.message || failure).slice(0, 500);
+  const message = String(failure?.message || result?.errorCode || result?.status || 'Recurring booking did not verify').slice(0, 500);
   let adjacent;
   try {
     adjacent = await scanAdjacent(job.date);

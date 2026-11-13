@@ -155,3 +155,13 @@ test('explains a peak boundary rejection without claiming a booking', () => {
   assert.match(failure.action, /未提交预约/);
   assert.match(failure.action, /不会自动拆分/);
 });
+
+
+test('explains a closed Chrome page without claiming a booking', () => {
+  const failure = explainRunFailure({
+    status: 'failed', jobId: '2026-11-21-0800', timestamp: '2026-11-13T17:54:02.000Z',
+    errorCode: 'page.goto: Target page, context or browser has been closed',
+  });
+  assert.match(failure.reason, /Chrome/);
+  assert.match(failure.action, /未创建预约/);
+});

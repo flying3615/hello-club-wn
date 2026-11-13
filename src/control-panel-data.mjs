@@ -95,6 +95,15 @@ export function explainRunFailure(run, job = null) {
       action: '未创建预约。请检查当前余位或重新安排一次预约。',
     };
   }
+  if (/Target page, context or browser has been closed|Target closed|browser has been closed/i.test(code)) {
+    return {
+      ...base,
+      title: '上次预约未成功',
+      reason: '执行时专用 Chrome 的页面被关闭，预约流程没有完成。',
+      detail: '可能是 Chrome 正在重启、窗口被关闭或连接短暂中断。周期任务现在会在开放窗口内自动重试瞬时连接失败。',
+      action: '未创建预约。请保持专用 Chrome 运行；如仍反复出现，检查 Chrome 是否被手动关闭。',
+    };
+  }
   if (/peak boundary|peak time|crosses the .*peak/i.test(code)) {
     return {
       ...base,

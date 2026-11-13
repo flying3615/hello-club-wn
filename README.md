@@ -151,7 +151,7 @@ Two independent LaunchAgents run the same protected `execute` flow:
 | `com.hermes.hello-club.monday` | Monday **06:54** | next Monday | **15:30–17:00** |
 | `com.hermes.hello-club.weekend` | Saturday/Sunday **06:54** | same weekday + 7 days | **08:00–09:30** |
 
-Each run targets the same weekday seven days later. It never substitutes another interval: if the full interval is unavailable, the run fails and the failure record includes nearby availability from **06:00–19:30** for that date.
+Each run targets the same weekday seven days later. It never substitutes another interval: if the full interval is unavailable, the run fails and the failure record includes nearby availability from **06:00–19:30** for that date. Transient Chrome/CDP failures such as `Target page, context or browser has been closed` are retried within the opening window before the run is declared failed.
 
 The Mac must wake for the 06:54 runs. Install the repeating wake once from a normal Terminal:
 

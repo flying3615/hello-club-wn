@@ -274,3 +274,19 @@ test('requires the payment-page booking ID when matching the new remote record',
   assert.equal(findNewMatchingRemoteBooking(records, job, 'Court 4', new Set(['old-1']), 'other-3'), null);
   assert.equal(findNewMatchingRemoteBooking(records, job, 'Court 4', new Set(['old-1']), 'old-1'), null);
 });
+
+
+test('clicks a 30-minute single cell only once', async () => {
+  const calls = [];
+  const slot = (name) => ({
+    evaluate: async (callback) => callback({ scrollIntoView: (options) => calls.push({ name, scroll: options }) }),
+    click: async () => calls.push({ name, click: true }),
+    hover: async () => calls.push({ name, hover: true }),
+  });
+  const start = slot('slot');
+  await selectRenderedSlotRange({ startSlot: start, endSlot: start, singleSlot: true });
+  assert.deepEqual(calls, [
+    { name: 'slot', scroll: { block: 'center', inline: 'center' } },
+    { name: 'slot', click: true },
+  ]);
+});

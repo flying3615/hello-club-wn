@@ -134,6 +134,7 @@ export async function renderedBookingSlots(scope, grid, court, startTime, endTim
   return {
     startSlot: slots.nth(startIndex),
     endSlot: slots.nth(endIndex),
+    singleSlot: startIndex === endIndex,
   };
 }
 
@@ -239,11 +240,15 @@ export async function revealSlot(slot) {
   await slot.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' }));
 }
 
-export async function selectRenderedSlotRange({ startSlot, endSlot, assertDeadline = () => {} }) {
+export async function selectRenderedSlotRange({ startSlot, endSlot, singleSlot = false, assertDeadline = () => {} }) {
   assertDeadline();
   await revealSlot(startSlot);
   assertDeadline();
   await startSlot.click();
+  // A 30-minute segment resolves both endpoints to the same cell. The first click
+  // already opens the booking modal; hovering/clicking the same cell again is blocked
+  // by that modal.
+  if (singleSlot) return;
   assertDeadline();
   await revealSlot(endSlot);
   assertDeadline();
@@ -308,7 +313,7 @@ export async function submitBooking({
   assertPeakBoundary({ date: job.date, start: job.start, end: job.end });
   assertVenue(await page.locator('body').innerText());
   preflightBookingSubmission({ grid, court, start: job.start, end: job.end });
-  const { startSlot, endSlot } = await preflightRenderedBookingSlots({
+  const { startSlot, endSlot, singleSlot } = await preflightRenderedBookingSlots({
     scope, grid, court, start: job.start, end: job.end,
   });
   // The prior-booking snapshot is normally taken during prewarm (a target date cannot
@@ -323,7 +328,7 @@ export async function submitBooking({
   let review;
   try {
     assertDeadline();
-    await selectRenderedSlotRange({ startSlot, endSlot, assertDeadline });
+    await selectRenderedSlotRange({ startSlot, endSlot, singleSlot, assertDeadline });
     const modal = visibleModal(page);
     await modal.waitFor({ state: 'visible', timeout: 5_000 });
     verifySelection(await modal.innerText(), job, court);

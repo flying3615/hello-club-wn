@@ -193,3 +193,23 @@ test('reads the loaded LaunchAgent run time, caffeinate, and the repeating wake'
   assert.deepEqual(parseRepeatingWake('Repeating power events:\n  wakepoweron at 6:56AM Some days\n'), { time: '06:56', days: 'Some days' });
   assert.equal(parseRepeatingWake('Scheduled power events:'), null);
 });
+
+test('classifies Hello Club sign-in from rendered text only', async () => {
+  const { classifyLogin, probeAllowed, createLoginCache } = await import('../src/login-probe.mjs');
+  assert.equal(classifyLogin({ url: 'https://x/bookings/a', bodyText: 'Courts\nYufei Liu\nCourt 1', memberName: 'Yufei Liu' }), 'signed_in');
+  assert.equal(classifyLogin({ url: 'https://x/bookings/a', bodyText: 'Courts\nLog in\nCourt 1', memberName: 'Yufei Liu' }), 'signed_out');
+  assert.equal(classifyLogin({ url: 'https://x/login?next=a', bodyText: 'Yufei', memberName: 'Yufei Liu' }), 'signed_out');
+  assert.equal(classifyLogin({ url: 'https://x/bookings/a', bodyText: 'Court 1', memberName: 'Yufei Liu' }), 'unknown');
+  // never probe around the 07:00 opening or during a run
+  assert.equal(probeAllowed({ now: new Date('2026-11-14T17:55:00Z') }), false); // 06:55 NZDT
+  assert.equal(probeAllowed({ now: new Date('2026-11-14T20:00:00Z') }), true); // 09:00 NZDT
+  assert.equal(probeAllowed({ now: new Date('2026-11-14T20:00:00Z'), runnerActive: true }), false);
+  let probes = 0;
+  let clock = Date.parse('2026-11-14T20:00:00Z');
+  const cache = createLoginCache({ probe: async () => { probes += 1; return 'signed_in'; }, now: () => clock });
+  assert.equal((await cache.get({ memberName: 'Yufei Liu' })).state, 'signed_in');
+  clock += 60_000;
+  await cache.get({ memberName: 'Yufei Liu' });
+  assert.equal(probes, 1);
+  assert.equal((await cache.get({ cdpReachable: false })).state, 'unknown');
+});

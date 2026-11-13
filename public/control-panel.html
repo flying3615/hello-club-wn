@@ -139,6 +139,16 @@
     .court .issues[hidden] { display: none; }
     .court .issues ul { margin: 4px 0 0; padding-left: 18px; }
     .court .issues small { display: block; opacity: .8; }
+    .status { margin-top: 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 16px; }
+    .status ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 18px; }
+    .status li { display: grid; grid-template-columns: 10px 1fr; gap: 0 9px; align-items: baseline; font-size: 13px; line-height: 1.35; }
+    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--soft); transform: translateY(-1px); }
+    .status .ok .dot { background: var(--ok); }
+    .status .warn .dot { background: var(--warn); }
+    .status .bad .dot { background: #c23a3a; }
+    .status .label { color: var(--soft); }
+    .status .value { grid-column: 2; font-weight: 600; }
+    .status .bad .value { color: #c23a3a; }
     .task { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 16px 18px; border-top: 1px solid var(--rule); }
     .task:first-child { border-top: 0; }
     .task .what { font-size: 16px; font-weight: 650; }
@@ -184,6 +194,7 @@
     @media (max-width: 820px) {
       .court { padding: 24px 22px; }
       .court .issues { max-width: none; }
+      .status ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .task { grid-template-columns: 1fr; }
       .task .next { grid-column: 1; grid-row: auto; text-align: left; }
       .task .next b { display: inline; margin-left: 6px; }
@@ -214,6 +225,10 @@
       <div class="countdown" id="hero-countdown"></div>
       <div class="target" id="hero-target"></div>
       <div class="issues" id="issues" hidden></div>
+    </section>
+
+    <section class="status" aria-label="系统状态">
+      <ul id="status-strip"></ul>
     </section>
 
     <section class="block" aria-labelledby="tasks-title">
@@ -314,10 +329,42 @@
       renderIssues(status, next?.task);
     }
 
+    function renderStatus(status) {
+      const items = [];
+      const chrome = status.processes?.chrome;
+      items.push(chrome?.cdpReachable ? ['ok', '专用 Chrome', '已连接'] : ['bad', '专用 Chrome', '没有连接']);
+      const login = status.login || {};
+      const checked = login.checkedAt ? `，${clock(login.checkedAt)} 检查` : '';
+      items.push(login.state === 'signed_in' ? ['ok', 'Hello Club 登录', `已登录${checked}`]
+        : login.state === 'signed_out' ? ['bad', 'Hello Club 登录', `没有登录${checked}`]
+        : ['warn', 'Hello Club 登录', chrome?.cdpReachable ? (login.checkedAt ? `无法确认${checked}` : '还没检查') : 'Chrome 未连接，无法检查']);
+      const sync = status.remoteSync || {};
+      items.push(sync.state === 'fresh' ? ['ok', 'Hello Club 日历', `${stamp(sync.syncedAt)} 同步`]
+        : sync.state === 'stale' ? ['warn', 'Hello Club 日历', `用的是 ${stamp(sync.syncedAt)} 的缓存`]
+        : ['bad', 'Hello Club 日历', '读不到']);
+      const wake = status.wake;
+      items.push(!wake?.available ? ['warn', 'Mac 定时唤醒', '读不到设置']
+        : wake.repeating ? ['ok', 'Mac 定时唤醒', `每周 ${wake.repeating.time}`]
+        : ['bad', 'Mac 定时唤醒', '没有设置']);
+      for (const task of status.recurring?.tasks || []) {
+        const label = `${task.label}任务`;
+        if (!task.configured) items.push(['bad', label, '没有加载']);
+        else if (task.loadedRunTime && task.loadedRunTime !== task.expectedRunTime) items.push(['warn', label, `旧设置，${task.loadedRunTime} 启动`]);
+        else items.push([task.keepsAwake === false ? 'warn' : 'ok', label, `${task.loadedRunTime || task.expectedRunTime} 启动${task.keepsAwake === false ? '，可能睡眠' : '，防睡眠'}`]);
+      }
+      const runner = status.processes?.runner;
+      items.push(runner?.state === 'running' ? ['ok', '预约程序', '正在运行'] : ['idle', '预约程序', '空闲']);
+      const dispatcher = status.processes?.dispatcher;
+      const dispatcherOk = dispatcher?.configured && ['running', 'not running'].includes(dispatcher.state);
+      items.push(dispatcherOk ? ['ok', '单次任务调度器', dispatcher.state === 'running' ? '检查中' : '待命'] : ['warn', '单次任务调度器', '没有加载']);
+      $('#status-strip').innerHTML = items.map(([kind, label, value]) => `<li class="${kind}"><span class="dot" aria-hidden="true"></span><span class="label">${esc(label)}</span><span class="value">${esc(value)}</span></li>`).join('');
+    }
+
     // Shown only when something would stop the next opening from running.
     function renderIssues(status, task) {
       const issues = [];
       if (!status.processes?.chrome?.cdpReachable) issues.push({ text: '专用 Chrome 没有打开', hint: '打开专用 Chrome，并确认已登录 Hello Club' });
+      else if (status.login?.state === 'signed_out') issues.push({ text: 'Hello Club 没有登录', hint: '在专用 Chrome 里手动登录 Hello Club' });
       const wake = status.wake;
       if (wake?.available && !wake.repeating) issues.push({ text: 'Mac 没有设置定时唤醒', hint: 'sudo pmset repeat wakeorpoweron MSU 06:56:00' });
       else if (wake?.repeating && task?.expectedRunTime && wake.repeating.time >= task.expectedRunTime) issues.push({ text: `唤醒时间 ${wake.repeating.time} 晚于启动时间 ${task.expectedRunTime}`, hint: '把唤醒改到启动前' });
@@ -451,7 +498,7 @@
 
     function render(status) {
       latest = status;
-      renderHero(status); renderTasks(status); renderBookings(status); renderResult(status); renderActivity(status);
+      renderHero(status); renderStatus(status); renderTasks(status); renderBookings(status); renderResult(status); renderActivity(status);
       $('#safety').textContent = status.safety?.message || '';
       $('#updated').textContent = `更新于 ${clock(status.generatedAt)}`;
     }

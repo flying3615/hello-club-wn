@@ -11,6 +11,8 @@ import { createRemoteBookingCache, partitionRemoteBookings, readRemoteBookings }
 import { nextRecurringRun } from './weekend-schedule.mjs';
 import { RECURRING_TASKS } from './recurring-tasks.mjs';
 import { openingInstantForTargetDate } from './opening-window.mjs';
+import { createLoginCache } from './login-probe.mjs';
+import { DEFAULT_PARTICIPANTS } from './recurring-booking.mjs';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DIR = path.resolve(new URL('..', import.meta.url).pathname);
@@ -21,6 +23,7 @@ const LOOPBACK_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8787;
 export const REMOTE_BOOKING_SYNC_TTL_MS = 43_200_000;
 const remoteBookingCache = createRemoteBookingCache({ read: readRemoteBookings, ttlMs: REMOTE_BOOKING_SYNC_TTL_MS });
+const loginCache = createLoginCache();
 
 function parseArgs(argv) {
   const result = {};
@@ -240,6 +243,7 @@ export async function buildStatus() {
   const now = nowDate.toISOString();
   const groupedBookings = partitionRemoteBookings(remote.bookings, now);
   const chromeReady = chrome === null ? cdp.reachable : chrome || cdp.reachable;
+  const login = await loginCache.get({ memberName: DEFAULT_PARTICIPANTS[0], runnerActive: locks.length > 0, cdpReachable: cdp.reachable });
   return {
     generatedAt: now,
     safety: {
@@ -247,6 +251,7 @@ export async function buildStatus() {
       message: '此面板只读，不能选择、提交、支付、取消或修改预约。',
     },
     wake,
+    login: { state: login.state, checkedAt: login.checkedAt === null ? null : new Date(login.checkedAt).toISOString() },
     processes: {
       dispatcher,
       chrome: { processDetected: chromeReady, cdpReachable: cdp.reachable },
